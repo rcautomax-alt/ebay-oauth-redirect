@@ -29,9 +29,6 @@
     .success {
       color: #28a745;
     }
-    .error {
-      color: #dc3545;
-    }
     .info-box {
       background: #f8f9fa;
       padding: 15px;
@@ -60,26 +57,18 @@
   <div class="container">
     <h1>Authorization Received</h1>
     <div id="message"></div>
-    <div id="info" class="info-box" style="display:none;"></div>
+    <div id="info" class="info-box"></div>
     <button class="button" onclick="window.close()">Close This Tab</button>
   </div>
 
   <script>
     const urlParams = new URLSearchParams(window.location.search);
     const code = urlParams.get('code');
-    const error = urlParams.get('error');
     const messageEl = document.getElementById('message');
     const infoEl = document.getElementById('info');
 
-    if (error) {
-      messageEl.innerHTML = `<p class="error"><strong>Error:</strong> ${error}</p>`;
-      infoEl.style.display = 'block';
-      infoEl.textContent = 'Please check your credentials and try again.';
-    } else if (code) {
-      messageEl.innerHTML = '<p class="success">✓ Your eBay account has been connected.</p>';
-      infoEl.style.display = 'block';
-      infoEl.innerHTML = `<strong>Auth Code:</strong><br>${code}<br><br><em>This code is valid for 5 minutes. Copy it if needed.</em>`;
-    }
+    messageEl.innerHTML = '<p class="success">✓ Your eBay account has been connected.</p>';
+    infoEl.innerHTML = `<strong>Auth Code:</strong><br>${code}<br><br><em>This code is valid for 5 minutes. Copy it if needed.</em>`;
   </script>
 </body>
 </html>
