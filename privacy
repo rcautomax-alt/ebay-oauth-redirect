@@ -1,0 +1,17 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Privacy Policy - Rick's Card Listings</title>
+</head>
+<body>
+<h1>Privacy Policy</h1>
+<p>This application is used solely by its owner (a single individual seller) to manage
+and post personal eBay listings via the eBay API. It does not collect, store, or share
+personal data belonging to any other eBay user, buyer, or third party.</p>
+<p>Any data accessed through the eBay API (such as listing details, order info for the
+owner's own sales) is used exclusively to operate the owner's own eBay selling account
+and is not shared with third parties.</p>
+<p>Contact: (owner's contact info)</p>
+</body>
+</html>
