@@ -1,0 +1,91 @@
+:root {
+  --bg: #ffffff;
+  --fg: #1d1d1f;
+  --muted: #6b6b70;
+  --line: #d9d9de;
+  --accent: #8a1c2b;
+  --accent-fg: #ffffff;
+  --block: #b3261e;
+  --confirm: #b25e00;
+  --warn: #8a6d00;
+  --info: #25589c;
+  --ok: #2e7d32;
+  --panel: #f6f6f8;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #1b1b1e;
+    --fg: #ececf0;
+    --muted: #a0a0a8;
+    --line: #3a3a40;
+    --accent: #c9485b;
+    --panel: #242428;
+    --block: #ff6b61;
+    --confirm: #ffae4a;
+    --warn: #e2c14a;
+    --info: #7fb0ff;
+    --ok: #6fcf73;
+  }
+}
+* { box-sizing: border-box; }
+body {
+  margin: 0;
+  padding: 10px 12px 40px;
+  font: 13px/1.4 system-ui, -apple-system, "Segoe UI", sans-serif;
+  background: var(--bg);
+  color: var(--fg);
+}
+h1 { font-size: 15px; margin: 0 0 8px; }
+h2 { font-size: 13px; margin: 0 0 8px; text-transform: uppercase; letter-spacing: .04em; color: var(--muted); }
+h3 { font-size: 13px; margin: 10px 0 4px; }
+section, details { border-top: 1px solid var(--line); padding: 10px 0; }
+summary { cursor: pointer; font-weight: 600; }
+button {
+  font: inherit; padding: 6px 10px; border-radius: 6px;
+  border: 1px solid var(--line); background: var(--panel); color: var(--fg); cursor: pointer;
+}
+button:hover { border-color: var(--muted); }
+button.primary { background: var(--accent); color: var(--accent-fg); border-color: var(--accent); }
+button.danger { color: var(--block); }
+button:disabled { opacity: .5; cursor: not-allowed; }
+.wide-btn { width: 100%; margin-top: 6px; padding: 8px; font-weight: 600; }
+.toolbar { display: flex; gap: 6px; flex-wrap: wrap; }
+.row { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; margin-top: 8px; }
+.grid { display: grid; grid-template-columns: 1fr 1fr; gap: 6px 8px; }
+.grid label, .row label { display: flex; flex-direction: column; font-size: 11px; color: var(--muted); gap: 2px; }
+.grid label.wide { grid-column: 1 / -1; }
+label.check { flex-direction: row !important; align-items: center; gap: 6px !important; font-size: 13px !important; color: var(--fg) !important; }
+input, select, textarea {
+  font: inherit; color: var(--fg); background: var(--bg);
+  border: 1px solid var(--line); border-radius: 5px; padding: 4px 6px; width: 100%;
+}
+input[type=checkbox] { width: auto; }
+textarea { resize: vertical; }
+.status { margin-top: 8px; padding: 6px 8px; border-radius: 6px; background: var(--panel); }
+.status.error { color: var(--block); }
+.status.ok { color: var(--ok); }
+.hint { color: var(--muted); font-size: 12px; margin: 4px 0; }
+.hint.warn { color: var(--confirm); }
+.badge { font-size: 10px; padding: 1px 6px; border-radius: 10px; background: var(--panel); border: 1px solid var(--line); text-transform: none; letter-spacing: 0; }
+ul { list-style: none; padding: 0; margin: 6px 0; }
+.flags li { padding: 5px 8px; margin-bottom: 4px; border-left: 3px solid; border-radius: 4px; background: var(--panel); }
+.flags li.block { border-color: var(--block); color: var(--block); font-weight: 600; }
+.flags li.confirm { border-color: var(--confirm); }
+.flags li.warn { border-color: var(--warn); }
+.flags li.info { border-color: var(--info); }
+.flags li label { flex-direction: row; font-size: 12px; margin-top: 4px; color: var(--confirm); font-weight: 600; }
+.tasks li, .queue li, .alts li { padding: 5px 0; border-bottom: 1px dashed var(--line); display: flex; gap: 8px; align-items: center; }
+.tasks li.call { opacity: .55; }
+.tasks .name { cursor: pointer; text-decoration: underline dotted; flex: 1; }
+.tag { font-size: 10px; padding: 1px 6px; border-radius: 10px; border: 1px solid var(--line); white-space: nowrap; }
+.tag.call { color: var(--block); }
+.tag.email, .tag.text { color: var(--info); }
+.pricing { margin-top: 8px; padding: 8px; background: var(--panel); border-radius: 6px; font-variant-numeric: tabular-nums; }
+.pricing div { display: flex; justify-content: space-between; }
+.pricing .total { font-weight: 700; border-top: 1px solid var(--line); margin-top: 4px; padding-top: 4px; }
+.email-preview { border: 1px solid var(--line); border-radius: 6px; padding: 8px; background: var(--bg); max-height: 360px; overflow: auto; }
+.email-preview p { margin: 0 0 10px; }
+pre { white-space: pre-wrap; font-size: 11px; background: var(--panel); padding: 6px; border-radius: 6px; max-height: 220px; overflow: auto; }
+.queue .who { flex: 1; }
+.ok { color: var(--ok); }
+a { color: var(--info); }

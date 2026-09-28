@@ -1,0 +1,152 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>Ritchey CRM Assistant</title>
+  <link rel="stylesheet" href="sidepanel.css">
+</head>
+<body>
+  <header>
+    <h1>Ritchey CRM Assistant</h1>
+    <div class="toolbar">
+      <button id="btn-tasks" title="Read the My Tasks / Follow Ups grid">Read Task List</button>
+      <button id="btn-customer" class="primary" title="Read the customer open in VinSolutions">Read Customer</button>
+      <button id="btn-capture" title="Save a scrubbed snapshot of this page for adapter tuning">Capture Page</button>
+    </div>
+    <div id="status" class="status" hidden></div>
+  </header>
+
+  <details id="tasks-section" hidden open>
+    <summary>Today's tasks <span id="tasks-count"></span></summary>
+    <p class="hint">Click a name to copy it for the VinSolutions search box. Open that customer, then hit <b>Read Customer</b>.</p>
+    <ul id="tasks-list" class="tasks"></ul>
+  </details>
+
+  <section id="customer-section" hidden>
+    <h2>Customer <span id="view-badge" class="badge"></span></h2>
+    <div class="grid" id="record-form">
+      <label>Customer <input data-field="customerName"></label>
+      <label>First name <input data-field="firstName"></label>
+      <label>Task type
+        <select data-field="taskType">
+          <option value="email">Email</option>
+          <option value="text">Text</option>
+          <option value="call">Call</option>
+          <option value="unknown">Unknown</option>
+        </select>
+      </label>
+      <label>Manager <input data-field="manager"></label>
+      <label class="wide">Vehicle <input data-field="vehicleTitle"></label>
+      <label>Model (for search) <input data-field="model"></label>
+      <label>Stock # <input data-field="stock"></label>
+      <label class="wide">VIN <input data-field="vin"></label>
+      <label>CRM status
+        <select data-field="crmStatus">
+          <option value="active">Active</option>
+          <option value="sold">Sold</option>
+          <option value="not-inventory">Not inventory</option>
+          <option value="unknown">Unknown</option>
+        </select>
+      </label>
+      <label>Notes count <input data-field="notesCount" type="number" min="0"></label>
+    </div>
+    <div class="row">
+      <label class="check"><input type="checkbox" id="user-sold"> I think this unit is sold</label>
+      <label>Language
+        <select id="lang"><option value="en">English</option><option value="es">Spanish</option></select>
+      </label>
+    </div>
+    <div class="row">
+      <label class="check"><input type="checkbox" id="ch-sms" checked> Text</label>
+      <label class="check"><input type="checkbox" id="ch-email" checked> Email</label>
+    </div>
+
+    <ul id="flags" class="flags"></ul>
+
+    <details id="notes-box">
+      <summary>Notes &amp; History excerpt</summary>
+      <pre id="notes-excerpt"></pre>
+    </details>
+  </section>
+
+  <section id="inventory-section" hidden>
+    <h2>Inventory check</h2>
+    <div id="inventory-result"></div>
+    <div class="row">
+      <button id="btn-lookup">Check ritcheybuickgmc.com</button>
+    </div>
+  </section>
+
+  <section id="pricing-section" hidden>
+    <h2>Pricing</h2>
+    <div class="grid">
+      <label>Asking / SALE PRICE <input id="asking" inputmode="numeric" placeholder="$"></label>
+      <label>Manager discount <input id="discount" inputmode="numeric" placeholder="$ — enter this"></label>
+    </div>
+    <div id="pricing-out" class="pricing"></div>
+  </section>
+
+  <section id="alts-section" hidden>
+    <h2>Alternatives</h2>
+    <p class="hint">Same model from the website. Uncheck any you don't want offered.</p>
+    <ul id="alts-list" class="alts"></ul>
+    <button id="btn-alts">Search website for alternatives</button>
+  </section>
+
+  <section id="draft-section" hidden>
+    <button id="btn-draft" class="primary wide-btn">Generate drafts</button>
+    <p id="draft-blocked" class="hint warn" hidden></p>
+    <div id="drafts" hidden>
+      <div id="sms-box">
+        <h3>Text</h3>
+        <textarea id="sms-out" rows="5"></textarea>
+        <div class="row"><button data-copy="sms">Copy text</button><span id="sms-len" class="hint"></span></div>
+      </div>
+      <div id="email-box">
+        <h3>Email</h3>
+        <label>Subject <input id="email-subject"></label>
+        <div id="email-out" class="email-preview" contenteditable="true"></div>
+        <div class="row">
+          <button data-copy="email-rich">Copy email (keeps bold)</button>
+          <button data-copy="email-plain">Copy plain</button>
+        </div>
+      </div>
+      <button id="btn-save" class="primary wide-btn">Save to today's queue</button>
+    </div>
+  </section>
+
+  <details id="queue-section" open>
+    <summary>Today's queue <span id="queue-count"></span></summary>
+    <ul id="queue-list" class="queue"></ul>
+    <div class="row">
+      <button id="btn-csv">Export CSV</button>
+      <button id="btn-clear" class="danger">Clear today</button>
+    </div>
+  </details>
+
+  <details id="settings-section">
+    <summary>Settings</summary>
+    <div class="grid" id="settings-form">
+      <label>Your name <input data-setting="myName"></label>
+      <label>First name (in drafts) <input data-setting="firstName"></label>
+      <label class="wide">Name aliases (comma-separated) <input data-setting="myNameAliases" data-list></label>
+      <label>Title <input data-setting="title"></label>
+      <label>Title (Spanish) <input data-setting="titleEs"></label>
+      <label>Phone in drafts <input data-setting="phone"></label>
+      <label class="wide">Other managers / BDC (comma-separated) <input data-setting="otherManagers" data-list></label>
+      <label>Text message price
+        <select data-setting="textPriceField">
+          <option value="special">Special Price</option>
+          <option value="withFees">Price with Fees</option>
+        </select>
+      </label>
+      <label>Alt price window ($) <input data-setting="altPriceWindow" type="number"></label>
+      <label class="check"><input type="checkbox" data-setting="includeSignature"> Include signature in email</label>
+    </div>
+    <p class="hint" id="fees-line"></p>
+    <button id="btn-save-settings">Save settings</button>
+  </details>
+
+  <script type="module" src="sidepanel.js"></script>
+</body>
+</html>

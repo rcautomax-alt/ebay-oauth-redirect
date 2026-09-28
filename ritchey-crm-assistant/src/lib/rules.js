@@ -1,0 +1,112 @@
+import { nameKey } from './format.js';
+
+// Flag levels:
+//   block   – no drafting, period (phone-call tasks)
+//   confirm – you must tick the box before drafts are generated
+//   warn    – heads-up, doesn't stop anything
+//   info    – context (tone, shared VOI)
+//
+// Modes:
+//   skip         – call task, yours
+//   quote        – normal Manager Special price quote
+//   alternatives – VOI sold / not real inventory: offer similar units
+//   ask          – not enough info to draft anything; your call
+
+export function isMe(managerField, settings) {
+  const fieldTokens = new Set(nameKey(managerField).split(' ').filter(Boolean));
+  if (!fieldTokens.size) return false;
+  // Match when every token of one of your names appears in the field, so
+  // "Clemons, Rick (Pre-Owned Sales Manager)" still counts as you.
+  return [settings.myName, ...(settings.myNameAliases || [])].some((n) => {
+    const t = nameKey(n).split(' ').filter(Boolean);
+    return t.length > 0 && t.every((x) => fieldTokens.has(x));
+  });
+}
+
+export function evaluate(record, ctx) {
+  const { settings, userSaysSold = false, sharedWith = [], inventory = null, expectedCustomer = null } = ctx;
+  const flags = [];
+  const add = (level, code, message) => flags.push({ level, code, message });
+  const voi = record.voi || {};
+  const taskType = record.task?.type || 'unknown';
+
+  // 1. Calls are yours. Full stop.
+  if (taskType === 'call') {
+    add('block', 'CALL_TASK', 'Phone-call task — skipped. Calls stay with you.');
+    return { mode: 'skip', flags };
+  }
+  if (taskType === 'unknown') {
+    add('confirm', 'TASK_TYPE_UNKNOWN', "Couldn't read the task type. Confirm this is an email/text task, not a call.");
+  }
+
+  // 2. Right customer on screen?
+  if (expectedCustomer && record.customerName && nameKey(expectedCustomer) !== nameKey(record.customerName)) {
+    add('confirm', 'CUSTOMER_MISMATCH', `You picked "${expectedCustomer}" but the screen shows "${record.customerName}".`);
+  }
+
+  // 3. Who owns the task?
+  if (!record.manager) {
+    add('warn', 'MANAGER_UNREAD', "Couldn't read the Manager: field — double-check who this task belongs to.");
+  } else if (!isMe(record.manager, settings)) {
+    const known = (settings.otherManagers || []).find((n) => nameKey(n) === nameKey(record.manager));
+    add(
+      'confirm',
+      'MANAGER_NOT_ME',
+      `Task is assigned to ${known || record.manager}, not you. Handle it anyway?`,
+    );
+  }
+
+  // 4. Is the VOI real, active inventory?
+  let mode = 'quote';
+  const crm = voi.status;
+  if (crm === 'not-inventory') {
+    add('confirm', 'NOT_INVENTORY', '"VIN required to use Accelerate" and no stock # — new-model order or trade lead, not real inventory. Draft alternatives instead?');
+    mode = 'alternatives';
+  } else if (crm === 'sold') {
+    add('warn', 'VOI_SOLD', 'VOI is no longer in active inventory (sold). No price quote — drafting alternatives.');
+    mode = 'alternatives';
+  } else if (!voi.stock && !voi.vin) {
+    add('confirm', 'NO_STOCK', 'No stock # or VIN found for the vehicle of interest. Type one in or decide how to handle it.');
+    mode = 'ask';
+  } else if (crm === 'unknown') {
+    add('warn', 'STATUS_UNKNOWN', "Couldn't find \"View Photos / View VDP\" or a sold notice — status unconfirmed in CRM.");
+  }
+
+  // 5. You vs. the CRM vs. the website.
+  if (userSaysSold && crm === 'active') {
+    add('confirm', 'YOU_VS_CRM', "You marked this sold, but VinSolutions shows it active. Right customer/vehicle? Confirm to continue.");
+  } else if (userSaysSold && mode === 'quote') {
+    mode = 'alternatives';
+  }
+  if (inventory) {
+    if (inventory.found && crm === 'sold') {
+      add('warn', 'CRM_VS_SITE', 'CRM says sold, but ritcheybuickgmc.com still lists it (site can lag a day). Check before offering it.');
+    }
+    if (!inventory.found && mode === 'quote') {
+      add('confirm', 'NOT_ON_SITE', 'CRM shows active, but not found on the website by stock # OR model search. Enter the asking price manually or treat as sold.');
+    }
+    if (inventory.found && !inventory.vehicle?.price && mode === 'quote') {
+      add('warn', 'NO_SITE_PRICE', 'Found on the website but no SALE PRICE was readable — enter it manually.');
+    }
+  }
+
+  // 6. Prioritization + tone.
+  if (sharedWith.length) {
+    add('info', 'SHARED_VOI', `🔥 Shared VOI — also the vehicle of interest for: ${sharedWith.join(', ')}.`);
+  }
+  const count = record.notes?.count;
+  if (count === 0) add('info', 'TONE_FIRST', 'No notes/history — formal first-touch tone.');
+  else if (count > 0) add('info', 'TONE_FOLLOWUP', `${count} notes/history entries — follow-up tone. Skim the notes below.`);
+  else add('warn', 'NOTES_UNREAD', "Couldn't read the Notes & History count — defaulting to first-touch tone.");
+
+  return { mode, flags };
+}
+
+export function unacknowledged(flags, acks) {
+  return flags.filter((f) => f.level === 'confirm' && !acks[f.code]);
+}
+
+export function canDraft(result, acks) {
+  if (result.mode === 'skip' || result.mode === 'ask') return false;
+  return unacknowledged(result.flags, acks).length === 0;
+}

@@ -1,0 +1,106 @@
+# Ritchey CRM Assistant (v0.1)
+
+A Chrome extension that sits in a side panel next to VinSolutions. It reads the customer you have open, checks the vehicle of interest against ritcheybuickgmc.com, and drafts the **"\*10 Day: MGR | Send Out Price"** text and email for you to review.
+
+**It never sends anything.** Drafts get copied and pasted by you.
+
+---
+
+## Install (one time, ~2 minutes)
+
+1. Download this folder: on GitHub, open the branch, click **Code → Download ZIP**, and unzip it somewhere permanent (e.g. `Documents\ritchey-crm-assistant`). Chrome loads it from that spot, so don't delete it.
+2. In Chrome, go to `chrome://extensions`.
+3. Turn on **Developer mode** (top-right toggle).
+4. Click **Load unpacked** and pick the `ritchey-crm-assistant` folder (the one containing `manifest.json`).
+5. Click the puzzle-piece icon in the toolbar and **pin** "Ritchey CRM Assistant."
+6. Click the pinned icon to open the side panel.
+
+**Updating:** replace the folder contents with the new version, then hit the ↻ reload arrow on the extension card at `chrome://extensions`.
+
+> If your VinSolutions URL isn't on `*.vinsolutions.com`, `*.vinmanager.com` or `*.coxautoinc.com`, add it to `host_permissions` in `manifest.json` and reload.
+
+---
+
+## Daily flow
+
+1. **Read Task List** (optional) while My Tasks / Follow Ups is showing. It lists the day's tasks, with **calls greyed out as yours**. Clicking a name copies it for the VinSolutions search box and remembers who you picked.
+2. Open the customer in VinSolutions, then click **Read Customer**. The panel fills in:
+   - Customer, task type, Manager, vehicle, stock #, VIN, CRM status, and notes count. **Every field is editable.** If the reader gets something wrong, fix it and the flags update.
+   - **Flags:**
+     - 🟥 **Call task:** skipped, no drafts.
+     - 🟧 **Confirm:** you tick "Got it" before drafts unlock. This covers tasks assigned to Arthur Deeley or Michael Crynock, "VIN required to use Accelerate" leads, "you said sold but CRM says active" mismatches, units not found on the website, and a customer on screen who doesn't match the one you picked.
+     - 🟨 **Heads-up:** sold unit, unreadable fields, CRM and website disagreeing.
+     - 🟦 **Info:** 🔥 shared VOI with another customer in today's queue, and tone (0 notes = first-touch, notes = follow-up).
+3. **Inventory check** runs automatically. It tries `searchused.aspx?stock=…` first, then **always falls back to `?model=…`** before calling a unit gone. It grabs the **SALE PRICE** and shows links to the pages it checked.
+4. **Type your discount.** Pricing calculates live:
+   - Manager Special Price = SALE PRICE − discount
+   - Price with Fees = Special + **$1,331** ($999 doc + $299 e-filing + $33 tag agency)
+5. **Generate drafts.** You get the text and email (bold pricing block, no signature since VinSolutions adds it). Both are editable in place.
+   - **Copy email (keeps bold)** puts formatted text on the clipboard, so bold survives pasting into the VinSolutions editor.
+6. **Save to today's queue.** **Export CSV** gives you the day's list for your spreadsheet.
+
+**Sold or not-real-inventory VOI:** no price quote. It searches the same model on the website, pre-checks up to 3 units closest in price (±$5,000 window), and drafts a "that one sold, here are a few similar options" text and email. Uncheck any you don't want offered.
+
+**Spanish:** switch Language to Spanish before generating drafts.
+
+**Flaky session:** frame reads retry automatically with backoff. If VinSolutions logged you out, the panel says so. Log back in, then hit **Retry**, and nothing you typed is lost. The panel also remembers the current customer if you close it.
+
+---
+
+## Capture Mode: help me tune the reader
+
+The VinSolutions reader was built from your workflow description, not from real screens. It works on text patterns ("Manager:", "Stock #", "View Photos View VDP", "no longer in your active inventory", etc.), but VinSolutions' exact wording and layout will need tuning.
+
+On each of these screens, click **Capture Page**:
+
+1. My Tasks / Follow Ups grid
+2. A customer in the full **Lead Info / Vehicle Info / Notes & History** view
+3. A customer in the compact **Customer Dashboard** view
+4. A customer whose VOI is **sold**
+5. A **"VIN required to use Accelerate"** (new-model order / trade) lead
+
+Each capture downloads a `.json` file. Emails, phone numbers, street addresses, form values, and the customer's name are scrubbed automatically. **Skim each file before sharing it.** Scrubbing is best effort.
+
+All VinSolutions patterns live in **one file:** `src/config/vinsolutions-map.js`.
+
+---
+
+## Settings (bottom of the panel)
+
+- Your name and aliases, used to decide whether a task's Manager field is you
+- Title (default **Pre-Owned Sales Manager**), phone, and other managers/BDC agents
+- Text message price: Special Price (default) or Price with Fees
+- Alternatives price window
+- Include signature in email (off by default, since VinSolutions adds it)
+
+Fees and inventory URL defaults live in `src/config/defaults.js`.
+
+---
+
+## Project layout
+
+```
+manifest.json                   Chrome extension manifest (MV3)
+src/background.js               Opens the side panel on icon click
+src/sidepanel/                  The UI + orchestration (read → check → price → draft)
+src/config/defaults.js          Your name, fees, phone, inventory URL, etc.
+src/config/vinsolutions-map.js  Every VinSolutions text pattern, in one place
+src/lib/vin-parser.js           Turns frame snapshots into a customer record / task list
+src/lib/inventory.js            Website search URLs, SALE PRICE parsing, alternatives
+src/lib/rules.js                Skip calls, manager check, sold/not-inventory, discrepancies
+src/lib/pricing.js              Special Price / Price with Fees math
+src/lib/templates.js            "*10 Day: MGR | Send Out Price" (EN + ES), alternatives version
+src/lib/probes.js               Functions injected into VinSolutions / inventory pages
+src/lib/queue.js                Today's queue, shared-VOI detection, CSV export
+test/                           Unit tests (node --test)
+```
+
+Run the tests with `npm test` (Node 18+, no dependencies).
+
+---
+
+## Roadmap
+
+- **v0.2:** tune the reader against real captures, then auto-search the customer from the task list (no copy-paste).
+- **v0.3:** "Insert into VinSolutions" puts the draft into the compose box, still unsent.
+- **Later:** actual sending through the VinSolutions compose UI (Cox's official API is partner-only), and optional Claude-written personalization from notes.
