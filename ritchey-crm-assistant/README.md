@@ -23,9 +23,15 @@ A Chrome extension that sits in a side panel next to VinSolutions. It reads the 
 
 ## Daily flow
 
-1. **Read Task List** (optional) while My Tasks / Follow Ups is showing. It lists the day's tasks, with **calls greyed out as yours**. Clicking a name copies it for the VinSolutions search box and remembers who you picked.
+1. **Read Task List** (optional) while My Tasks is showing. Every task is listed with its type, read from the task text:
+   - **email/text:** "Send out Manager Special Price Quote," replies received, etc. A 💲 tag marks the "*10 Day: MGR | Send Out Price" ones.
+   - **call · yours:** "Call Customer with Manager Special Price," "…Purchase Script," Call Tracking Tasks. Greyed out.
+   - **internal:** "Sales rep changed…", "MGR: Check did Salesperson Send out Video?", "VISIT: NEXT DAY SAVE-A-DEAL". Greyed out, since there's nothing to send.
+   - 🔥 **shared VOI:** the same stock # shows up for more than one customer on the list.
+
+   Clicking a task makes it the one you're working, and copies the name.
 2. Open the customer in VinSolutions, then click **Read Customer**. The panel fills in:
-   - Customer, task type, Manager, vehicle, stock #, VIN, CRM status, and notes count. **Every field is editable.** If the reader gets something wrong, fix it and the flags update.
+   - Customer, task type, Lead Manager, task Assigned To, vehicle, stock #, VIN, CRM status, and notes count. If the dashboard has no Vehicle Info section, the vehicle and stock # come from the task you clicked. **Every field is editable.** If the reader gets something wrong, fix it and the flags update.
    - **Flags:**
      - 🟥 **Call task:** skipped, no drafts.
      - 🟧 **Confirm:** you tick "Got it" before drafts unlock. This covers tasks assigned to Arthur Deeley or Michael Crynock, "VIN required to use Accelerate" leads, "you said sold but CRM says active" mismatches, units not found on the website, and a customer on screen who doesn't match the one you picked.
@@ -51,13 +57,13 @@ A Chrome extension that sits in a side panel next to VinSolutions. It reads the 
 
 The VinSolutions reader was built from your workflow description, not from real screens. It works on text patterns ("Manager:", "Stock #", "View Photos View VDP", "no longer in your active inventory", etc.), but VinSolutions' exact wording and layout will need tuning.
 
-On each of these screens, click **Capture Page**:
+Screenshots help, but the **Capture Page** button in the extension saves what the reader actually sees: the text in every frame, plus the hidden stuff a screenshot can't show, like which icon (phone, envelope, text bubble) sits next to a task. On each of these screens, click **Capture Page**:
 
 1. My Tasks / Follow Ups grid
 2. A customer in the full **Lead Info / Vehicle Info / Notes & History** view
 3. A customer in the compact **Customer Dashboard** view
 4. A customer whose VOI is **sold**
-5. A **"VIN required to use Accelerate"** (new-model order / trade) lead
+5. *(Optional)* A lead whose vehicle has **no stock #**, where VinSolutions shows "VIN required to use Accelerate" instead of pricing (e.g. a new-model or "any Tahoe" inquiry). If you don't run into one, skip it.
 
 Each capture downloads a `.json` file. Emails, phone numbers, street addresses, form values, and the customer's name are scrubbed automatically. **Skim each file before sharing it.** Scrubbing is best effort.
 

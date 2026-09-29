@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { parseCustomer, parseTaskGrid, classifyTaskType, detectSessionProblem } from '../src/lib/vin-parser.js';
+import { parseCustomer, parseTaskList, classifyTaskType, detectSessionProblem } from '../src/lib/vin-parser.js';
 import { parseVehicleTitle } from '../src/lib/vehicle.js';
 import {
   parsePrice, vehiclesFromExtraction, findVehicle, pickAlternatives, stockSearchUrl, modelSearchUrl,
@@ -22,8 +22,9 @@ const leadInfoFrames = [
     text: [
       'Customer: Jane Smith',
       'jane@example.com  (386) 555-0101',
+      'SALES MGR: Day 10. Send out Manager Special Price Quote',
+      'Template: *10 Day: MGR | Send Out Price\tAssigned To: Rick Clemons',
       'Lead Info',
-      'Task Type: Email',
       'Manager: Rick Clemons',
       'Vehicle Info',
       'Used 2011 Chrysler 300 Limited',
@@ -45,6 +46,8 @@ test('parses a Lead Info view', () => {
   assert.equal(r.firstName, 'Jane');
   assert.equal(r.manager, 'Rick Clemons');
   assert.equal(r.task.type, 'email');
+  assert.equal(r.task.isPriceQuote, true);
+  assert.equal(r.assignedTo, 'Rick Clemons');
   assert.equal(r.voi.stock, '24123A');
   assert.equal(r.voi.vin, '2C3CA5CG1BH512345');
   assert.equal(r.voi.title, '2011 Chrysler 300 Limited');
@@ -70,27 +73,149 @@ test('Accelerate with no stock = not inventory; "Stock #: VIN" is not a stock nu
   assert.equal(r.notes.count, 0);
 });
 
-test('task type classification: calls always win', () => {
+test('task type classification', () => {
+  assert.equal(classifyTaskType('SALES MGR: Day 10. Call Customer with Manager Special Price.'), 'call');
+  assert.equal(classifyTaskType('SALES MGR: Day 10. Send out Manager Special Price Quote Template: *10 Day: MGR | Send Out Price'), 'email');
+  assert.equal(classifyTaskType('Sales Manager - Sold Delivered 5 days ago Template: Thank You for Purchase Script'), 'call');
+  // The customer's own words don't turn a text reply into a call
+  assert.equal(classifyTaskType("Text Message Reply Received: can you call me?"), 'text');
+  assert.equal(classifyTaskType('MGR: Check did Salesperson Send out Video?'), 'other');
+  assert.equal(classifyTaskType('Sales rep changed to Joshua Rourke by John Huger'), 'other');
+  assert.equal(classifyTaskType('VISIT: NEXT DAY SAVE-A-DEAL.'), 'other');
   assert.equal(classifyTaskType('Phone Call'), 'call');
-  assert.equal(classifyTaskType('Email or call'), 'call');
-  assert.equal(classifyTaskType('Text Message'), 'text');
-  assert.equal(classifyTaskType('E-mail'), 'email');
   assert.equal(classifyTaskType(''), 'unknown');
 });
 
-test('task grid parsed by header names', () => {
-  const frames = [{
-    name: 'leftpaneframe', path: ['', 'leftpaneframe'], text: '',
-    tables: [[
-      ['', 'Customer', 'Task Type', 'Due', 'Manager'],
-      ['', 'Jane Smith', 'Email', '9/28', 'Rick Clemons'],
-      ['', 'Bob Jones', 'Phone Call', '9/28', 'Rick Clemons'],
-    ]],
-  }];
-  const rows = parseTaskGrid(frames);
-  assert.equal(rows.length, 2);
-  assert.equal(rows[0].type, 'email');
-  assert.equal(rows[1].type, 'call');
+// Shaped like the My Tasks screen (names are made up).
+const MY_TASKS = [
+  'My Tasks (28)',
+  'Details',
+  'Replies (1)',
+  'Customer\tHot\tStatus / Source\tUpdated\tAge\tEngagement Strength',
+  'Hannah Hill',
+  '2017 GMC Acadia Limited [142087A]\t\tActive Lead',
+  'Combined R. Autos Website\t9/28/26',
+  '11:17am\t11',
+  "Text Message Reply Received: I've found other Acadias, can you call me?",
+  'Assigned To: Rick Clemons',
+  'Edit\tDismiss',
+  'Call Tracking Tasks (0)',
+  'Sorry, no leads found.',
+  'Follow Ups (18)',
+  'Customer\tHot\tStatus / Source\tUpdated\tAge\tEngagement Strength',
+  'Robert Sample',
+  '2004 Toyota Sienna [183706A]\t\tDelivered',
+  'Repeat Customer\t9/25/26',
+  '8:36am\t11',
+  'Sales Manager - Sold Delivered 5 days ago - Make sure all is well. Template: "Thank You for Purchase Script"\tAssigned To: Rick Clemons',
+  'Edit\tDismiss',
+  'Faith Cole',
+  '2022 Kia K5 [242239A]\t\tActive Lead',
+  'Carfax, Inc\t9/27/26',
+  '3:46pm\t11',
+  'SALES MGR: Day 10. Call Customer with Manager Special Price.',
+  'Assigned To: Rick Clemons',
+  'Edit\tDismiss',
+  'SALES MGR: Day 10. Send out Manager Special Price Quote',
+  'Template: *10 Day: MGR | Send Out Price\tAssigned To: Rick Clemons',
+  'Edit\tDismiss',
+  'Jordan Pryce',
+  '2020 Cadillac XT4 (117222A)\t\tWaiting for prospect response',
+  'Carfax, Inc\t9/28/26',
+  '5:29pm\t1',
+  'Sales rep changed to Joshua Rourke by John Huger',
+  'Assigned To: Rick Clemons',
+  'MGR: Check did Salesperson Send out Video?',
+  'Assigned To: Rick Clemons',
+  'Pat Lambert',
+  '2026 Toyota RAV4 [1094868]\t\tAppointment Set',
+  'Autoweb\t9/29/26',
+  'Sales rep changed to John Carroll by Rick Clemons',
+  'Assigned To: Rick Clemons',
+  'Don Swift\t\tWaiting for prospect response',
+  '2026 Toyota RAV4 [1094868]',
+  'SALES MGR: Day 10. Send out Manager Special Price Quote',
+  'Template: *10 Day: MGR | Send Out Price\tAssigned To: Michael Crynock',
+].join('\n');
+
+test('My Tasks list: tasks, types, price quotes, sections, shared VOI', () => {
+  const tasks = parseTaskList([{ name: 'leftpaneframe', path: ['', 'leftpaneframe'], text: MY_TASKS, tables: [] }]);
+  const brief = tasks.map((t) => `${t.customer}|${t.stock}|${t.type}${t.isPriceQuote ? '|$' : ''}`);
+  assert.deepEqual(brief, [
+    'Hannah Hill|142087A|text',
+    'Robert Sample|183706A|call',
+    'Faith Cole|242239A|call',
+    'Faith Cole|242239A|email|$',
+    'Jordan Pryce|117222A|other',
+    'Jordan Pryce|117222A|other',
+    'Pat Lambert|1094868|other',
+    'Don Swift|1094868|email|$',
+  ]);
+  const faithQuote = tasks[3];
+  assert.equal(faithQuote.template, '*10 Day: MGR | Send Out Price');
+  assert.equal(faithQuote.description, 'SALES MGR: Day 10. Send out Manager Special Price Quote');
+  assert.equal(tasks[1].template, 'Thank You for Purchase Script');
+  assert.ok(tasks[1].description.startsWith('Sales Manager - Sold Delivered'));
+  assert.equal(tasks[0].section, 'Replies');
+  assert.equal(tasks[7].assignedTo, 'Michael Crynock');
+  assert.deepEqual(tasks[7].sharedWith, ['Pat Lambert']);
+  assert.deepEqual(tasks[3].sharedWith, []);
+});
+
+// Shaped like the Customer Dashboard with Lead Info / Vehicle Info side by
+// side (tab-interleaved columns) and a sold VOI.
+const DASHBOARD_SOLD = [
+  'Customer Dashboard',
+  'Jordan Pryce',
+  '(Individual)',
+  'H: (386) 555-0100',
+  'jp@example.com',
+  'Sales rep changed to Joshua Rourke by John Huger',
+  'Assigned To: Rick Clemons',
+  'Key Information',
+  'Equity: $83,520 2024 Cadillac Escalade Calculated: 08/11/2026',
+  'Inbox\tHot\tCall\tEmail\tAppt.\tNote\tLost\tBad\tSold\tVisit\tLetter\tText',
+  'Lead Info\tVehicle Info',
+  'Status:\tWaiting for Prospect Response\t2020 Cadillac XT4 FWD Premium Luxury (Used)',
+  'Sales Rep:\tJoshua Rourke\tFWD Sport Utility (4 Door)',
+  'BD Agent:\tArthur Deeley\tStock #: 117222A',
+  'Manager:\tRick Clemons\t1GYFZCR43LF123456',
+  'Created:\t9/28/26 3:35p (1d)\tOdom: 24,382',
+  'Warning: This vehicle is no longer in your active inventory',
+  'View Photos\tDeal Central',
+  'Vehicle(s) of Interest',
+  'Trade-in Info',
+  '(none entered)',
+].join('\n');
+
+test('Customer Dashboard + Lead Info: name, manager (not BD agent), bare VIN, sold', () => {
+  const r = parseCustomer([{ name: 'rightpaneframe', path: ['', 'rightpaneframe'], text: DASHBOARD_SOLD, tables: [] }]);
+  assert.equal(r.customerName, 'Jordan Pryce');
+  assert.equal(r.manager, 'Rick Clemons');
+  assert.equal(r.assignedTo, 'Rick Clemons');
+  assert.equal(r.voi.title, '2020 Cadillac XT4 FWD Premium Luxury');
+  assert.equal(r.voi.stock, '117222A');
+  assert.equal(r.voi.vin, '1GYFZCR43LF123456');
+  assert.equal(r.voi.status, 'sold');
+  assert.equal(r.task.type, 'other');
+});
+
+test('Customer Dashboard with no lead: equity/sales vehicles are NOT taken as the VOI', () => {
+  const text = [
+    'Customer Dashboard',
+    'Robert Sample',
+    '(Individual)',
+    'Sales Manager - Sold Delivered 5 days ago - Make sure all is well. Template: "Thank You for Purchase Script" Dismiss Edit',
+    'Assigned To: Rick Clemons',
+    'Equity: $83,520 2024 Cadillac Escalade Calculated: 08/11/2026',
+    'Sales (2)\tService Lead (6)\tWish List\tValue',
+    'Sold\t9/18/26\tRepeat Customer\t2024 Toyota Sienna',
+  ].join('\n');
+  const r = parseCustomer([{ name: 'rightpaneframe', path: ['', 'rightpaneframe'], text, tables: [] }]);
+  assert.equal(r.customerName, 'Robert Sample');
+  assert.equal(r.voi.title, null);
+  assert.equal(r.voi.stock, null);
+  assert.equal(r.task.type, 'call');
 });
 
 test('session expiry detected', () => {

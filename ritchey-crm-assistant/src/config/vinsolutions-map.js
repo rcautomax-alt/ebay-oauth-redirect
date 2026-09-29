@@ -1,9 +1,9 @@
 // The ONE place that knows what VinSolutions screens look like.
 //
 // These are text patterns matched against each frame's visible text, not CSS
-// selectors, so they survive most of Cox's cosmetic UI changes. They are a
-// first pass built from the workflow description — once Capture Mode samples
-// come in, tighten them here and nowhere else.
+// selectors, so they survive most of Cox's cosmetic UI changes. Tuned from
+// screenshots of My Tasks, the Customer Dashboard and the Lead Info / Vehicle
+// Info panel; tighten here (and nowhere else) as Capture Mode samples come in.
 
 export const VIN_MAP = {
   frames: {
@@ -22,10 +22,14 @@ export const VIN_MAP = {
   },
 
   fields: {
-    manager: /Manager\s*:[ \t]*([^\n\r\t]+)/i,
+    manager: /(?:^|[\n\t])[ \t]*Manager\s*:[ \t]*([^\n\r\t]+)/i,
+    assignedTo: /Assigned To\s*:[ \t]*([^\n\r\t]+)/i,
     stock: /Stock\s*(?:#|No\.?|Number)?\s*:?[ \t]*([A-Z0-9][A-Z0-9-]{2,14})\b/i,
     vin: /\bVIN\s*#?\s*:?[ \t]*([A-HJ-NPR-Z0-9]{17})\b/i,
+    bareVin: /\b[A-HJ-NPR-Z0-9]{17}\b/g,
     customerName: [
+      // Customer Dashboard: "Robert Sampico" on one line, "(Individual)" on the next
+      /^[ \t]*([A-Z][A-Za-z.'-]+(?:[ \t]+[A-Z][A-Za-z.'-]+){1,3})[ \t]*\r?\n[ \t]*\((?:Individual|Business|Company)\)/m,
       /Customer\s*(?:Name)?\s*:[ \t]*([^\n\r\t]+)/i,
       /^[ \t]*Name\s*:[ \t]*([^\n\r\t]+)/im,
     ],
@@ -33,24 +37,32 @@ export const VIN_MAP = {
     phone: /\(?\b\d{3}\)?[\s.-]?\d{3}[\s.-]?\d{4}\b/,
     notesCount: /Notes\s*(?:&|and)\s*History\s*\(?\s*(\d+)\s*\)?/i,
     notesHeader: /Notes\s*(?:&|and)\s*History/i,
-    taskType: /(?:Task\s*Type|Activity\s*Type)\s*:[ \t]*([^\n\r\t]+)/i,
-    vehicleSection: /(Vehicle Info|Vehicle of Interest|Vehicle Interest|Sought Vehicle|Wish List)/i,
-    tradeSection: /(Trade[- ]?In|Trade Info|Trade Vehicle)/i,
+    vehicleSection: /(Vehicle Info|Vehicle of Interest|Vehicle Interest|Sought Vehicle)/i,
+    tradeSection: /(Trade[- ]?In|Trade Info|Trade Vehicle|Vehicle\(s\) of Interest|Buyer and Co-?buyer)/i,
   },
 
-  // Order matters: "call" is checked first so anything call-ish is skipped.
+  // My Tasks / Follow Ups list.
+  taskList: {
+    // "Follow Ups (18)", "Replies (1)", "Call Tracking Tasks (0)"
+    sectionHeader: /^([A-Za-z][A-Za-z /&-]{1,40}?)\s*\((\d+)\)\s*$/,
+    // "2017 GMC Acadia Limited [142087A]" or "2020 Cadillac XT4 (117222A)"
+    vehicleWithStock: /^((?:19|20)\d{2}[ \t]+.+?)[ \t]*[[(]([A-Z0-9-]{3,15})[\])][ \t]*$/i,
+    // "…description… Template: "Thank You for Purchase Script"" -> [description, template]
+    template: /^(.*?)\bTemplate\s*:\s*["“]?(.+?)["”]?\s*$/i,
+    noise: /^(edit|dismiss|edit dismiss|n\/a|details)$/i,
+    // Date/time/age lines from the Updated/Age columns.
+    dateLike: /\b\d{1,2}\/\d{1,2}\/\d{2,4}\b|\b\d{1,2}:\d{2}\s*[ap]m\b/i,
+    priceQuote: /send out price|manager special price quote/i,
+    callSection: /call tracking/i,
+  },
+
+  // Task classification, checked in this order. Calls are checked before
+  // email/text so anything call-ish is skipped.
   taskTypes: {
-    call: /\b(call|phone)\b/i,
-    text: /\b(text|sms)\b/i,
-    email: /\be-?mail\b/i,
-  },
-
-  taskGridHeaders: {
-    customer: /customer|name/i,
-    type: /type|task|action|activity/i,
-    manager: /manager|assigned/i,
-    due: /due|date/i,
-    vehicle: /vehicle|interest/i,
-    subject: /subject|desc/i,
+    textReply: /^\s*text message reply received/i,
+    emailReply: /^\s*e-?mail reply received/i,
+    call: /\bcall\b|\bphone\b|\bscript\b/i,
+    text: /text message|\bsms\b|\btext\b/i,
+    email: /\be-?mail\b|send out (?:manager|price|quote)|price quote|template\s*:/i,
   },
 };

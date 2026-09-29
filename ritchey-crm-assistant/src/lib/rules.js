@@ -7,7 +7,7 @@ import { nameKey } from './format.js';
 //   info    – context (tone, shared VOI)
 //
 // Modes:
-//   skip         – call task, yours
+//   skip         – call task (yours) or internal task (nothing to send)
 //   quote        – normal Manager Special price quote
 //   alternatives – VOI sold / not real inventory: offer similar units
 //   ask          – not enough info to draft anything; your call
@@ -35,6 +35,10 @@ export function evaluate(record, ctx) {
     add('block', 'CALL_TASK', 'Phone-call task — skipped. Calls stay with you.');
     return { mode: 'skip', flags };
   }
+  if (taskType === 'other') {
+    add('block', 'NOT_CONTACT_TASK', 'Internal/notification task (rep change, video check, visit reminder…) — nothing to send the customer.');
+    return { mode: 'skip', flags };
+  }
   if (taskType === 'unknown') {
     add('confirm', 'TASK_TYPE_UNKNOWN', "Couldn't read the task type. Confirm this is an email/text task, not a call.");
   }
@@ -44,16 +48,17 @@ export function evaluate(record, ctx) {
     add('confirm', 'CUSTOMER_MISMATCH', `You picked "${expectedCustomer}" but the screen shows "${record.customerName}".`);
   }
 
-  // 3. Who owns the task?
-  if (!record.manager) {
-    add('warn', 'MANAGER_UNREAD', "Couldn't read the Manager: field — double-check who this task belongs to.");
-  } else if (!isMe(record.manager, settings)) {
-    const known = (settings.otherManagers || []).find((n) => nameKey(n) === nameKey(record.manager));
-    add(
-      'confirm',
-      'MANAGER_NOT_ME',
-      `Task is assigned to ${known || record.manager}, not you. Handle it anyway?`,
-    );
+  // 3. Who owns it? Both the task's "Assigned To:" and the lead's "Manager:"
+  //    (BD Agent / Sales Rep are other people's fields and don't count).
+  const whoIs = (name) => (settings.otherManagers || []).find((n) => nameKey(n) === nameKey(name)) || name;
+  if (!record.manager && !record.assignedTo) {
+    add('warn', 'MANAGER_UNREAD', "Couldn't read the Manager: or Assigned To: field — double-check who this belongs to.");
+  }
+  if (record.assignedTo && !isMe(record.assignedTo, settings)) {
+    add('confirm', 'TASK_NOT_MINE', `Task is assigned to ${whoIs(record.assignedTo)}, not you. Handle it anyway?`);
+  }
+  if (record.manager && !isMe(record.manager, settings)) {
+    add('confirm', 'MANAGER_NOT_ME', `Lead's Manager is ${whoIs(record.manager)}, not you. Handle it anyway?`);
   }
 
   // 4. Is the VOI real, active inventory?

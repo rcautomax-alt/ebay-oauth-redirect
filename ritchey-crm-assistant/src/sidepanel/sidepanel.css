@@ -76,6 +76,9 @@ ul { list-style: none; padding: 0; margin: 6px 0; }
 .flags li label { flex-direction: row; font-size: 12px; margin-top: 4px; color: var(--confirm); font-weight: 600; }
 .tasks li, .queue li, .alts li { padding: 5px 0; border-bottom: 1px dashed var(--line); display: flex; gap: 8px; align-items: center; }
 .tasks li.call { opacity: .55; }
+.tasks li.picked { background: var(--panel); outline: 1px solid var(--accent); }
+.tasks .task-main { flex: 1; }
+.tasks .tag + .task-main { min-width: 0; }
 .tasks .name { cursor: pointer; text-decoration: underline dotted; flex: 1; }
 .tag { font-size: 10px; padding: 1px 6px; border-radius: 10px; border: 1px solid var(--line); white-space: nowrap; }
 .tag.call { color: var(--block); }

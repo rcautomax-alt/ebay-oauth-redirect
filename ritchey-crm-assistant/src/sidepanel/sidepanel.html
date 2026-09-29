@@ -18,7 +18,7 @@
 
   <details id="tasks-section" hidden open>
     <summary>Today's tasks <span id="tasks-count"></span></summary>
-    <p class="hint">Click a name to copy it for the VinSolutions search box. Open that customer, then hit <b>Read Customer</b>.</p>
+    <p class="hint">Click a task to work it (the name is copied too). Open that customer in VinSolutions, then hit <b>Read Customer</b>.</p>
     <ul id="tasks-list" class="tasks"></ul>
   </details>
 
@@ -32,10 +32,12 @@
           <option value="email">Email</option>
           <option value="text">Text</option>
           <option value="call">Call</option>
+          <option value="other">Internal</option>
           <option value="unknown">Unknown</option>
         </select>
       </label>
-      <label>Manager <input data-field="manager"></label>
+      <label>Lead Manager <input data-field="manager"></label>
+      <label>Task Assigned To <input data-field="assignedTo"></label>
       <label class="wide">Vehicle <input data-field="vehicleTitle"></label>
       <label>Model (for search) <input data-field="model"></label>
       <label>Stock # <input data-field="stock"></label>

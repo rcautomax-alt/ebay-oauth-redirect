@@ -1,7 +1,8 @@
 import { DEFAULT_SETTINGS, feeTotal } from '../config/defaults.js';
-import { money, parseMoney, escapeHtml, todayKey, firstNameOf } from '../lib/format.js';
+import { money, parseMoney, escapeHtml, todayKey, firstNameOf, nameKey } from '../lib/format.js';
 import { computePricing } from '../lib/pricing.js';
-import { parseCustomer, parseTaskGrid, detectSessionProblem, splitPanes } from '../lib/vin-parser.js';
+import { parseCustomer, parseTaskList, detectSessionProblem, splitPanes } from '../lib/vin-parser.js';
+import { parseVehicleTitle, normalizeStock } from '../lib/vehicle.js';
 import { probeFrame, captureFrame, extractVehicleCards } from '../lib/probes.js';
 import {
   stockSearchUrl, modelSearchUrl, vehiclesFromExtraction, findVehicle, pickAlternatives,
@@ -20,6 +21,7 @@ const state = {
   settings: { ...DEFAULT_SETTINGS },
   tasks: [],
   expectedCustomer: null,
+  pickedTask: null, // the task you clicked in the list
   record: null, // flat, editable copy of the parsed customer
   notesExcerpt: '',
   view: '',
@@ -201,10 +203,14 @@ async function readTasks() {
   await busy('Reading task list…', async () => {
     try {
       const frames = await readVinSolutions({ needRight: false });
-      state.tasks = parseTaskGrid(frames);
+      state.tasks = parseTaskList(frames);
       renderTasks();
-      if (state.tasks.length) setStatus(`Found ${state.tasks.length} tasks.`, 'ok');
-      else setStatus("Couldn't find a task grid on this screen. Open My Tasks / Follow Ups, or use Capture Page and send it over so the reader can be tuned.", 'error');
+      const n = (type) => state.tasks.filter((t) => t.type === type).length;
+      if (state.tasks.length) {
+        setStatus(`Found ${state.tasks.length} tasks: ${n('email') + n('text')} email/text, ${n('call')} calls (yours), ${n('other')} internal.`, 'ok');
+      } else {
+        setStatus("Couldn't find tasks on this screen. Open My Tasks, or use Capture Page and send it over so the reader can be tuned.", 'error');
+      }
     } catch (err) {
       setStatus(err.message, 'error', readTasks);
     }
@@ -212,6 +218,15 @@ async function readTasks() {
 }
 
 function recordFromParsed(p) {
+  const picked = state.pickedTask;
+  // The Customer Dashboard doesn't always show a Vehicle Info section; fall
+  // back to the vehicle + stock # from the task you clicked.
+  if (picked && !p.voi.stock && !p.voi.title && picked.vehicle) {
+    const t = parseVehicleTitle(picked.vehicle);
+    p.voi.title = t?.title || picked.vehicle;
+    p.voi.model = t?.model || '';
+    p.voi.stock = picked.stock;
+  }
   return {
     customerName: p.customerName || state.expectedCustomer || '',
     firstName: p.firstName || firstNameOf(state.expectedCustomer),
@@ -219,6 +234,7 @@ function recordFromParsed(p) {
     phone: p.phone || '',
     taskType: p.task.type,
     manager: p.manager || '',
+    assignedTo: p.assignedTo || '',
     vehicleTitle: p.voi.title || '',
     model: p.voi.model || '',
     stock: p.voi.stock || '',
@@ -233,10 +249,13 @@ async function readCustomer() {
     try {
       const frames = await readVinSolutions({ needRight: true });
       const parsed = parseCustomer(frames);
-      // A task-list pick with a type beats "unknown" from the detail view.
-      const picked = state.tasks.find((t) => t.customer === state.expectedCustomer);
-      if (parsed.task.type === 'unknown' && picked) parsed.task.type = picked.type;
-      if (!parsed.manager && picked?.manager) parsed.manager = picked.manager;
+      // The task you clicked in the list is the one you're working, so its
+      // type and assignment beat whatever the detail screen shows first.
+      const picked = state.pickedTask;
+      if (picked && nameKey(picked.customer) === nameKey(parsed.customerName || picked.customer)) {
+        parsed.task.type = picked.type;
+        parsed.assignedTo = picked.assignedTo || parsed.assignedTo;
+      }
 
       Object.assign(state, {
         record: recordFromParsed(parsed),
@@ -310,12 +329,20 @@ async function runAlternatives() {
   reevaluate();
 }
 
+function sharedListFor(r) {
+  const fromList = state.tasks
+    .filter((t) => normalizeStock(t.stock) && normalizeStock(t.stock) === normalizeStock(r.stock) && nameKey(t.customer) !== nameKey(r.customerName))
+    .map((t) => t.customer);
+  return [...new Set([...sharedVoi(state.queue, r), ...fromList])];
+}
+
 function currentEvaluation() {
   const r = state.record;
-  const shared = sharedVoi(state.queue, { stock: r.stock, vin: r.vin, customerName: r.customerName });
+  const shared = sharedListFor(r);
   const record = {
     customerName: r.customerName,
     manager: r.manager,
+    assignedTo: r.assignedTo,
     task: { type: r.taskType },
     voi: { stock: r.stock, vin: r.vin, status: r.crmStatus },
     notes: { count: r.notesCount === '' || r.notesCount === null ? null : Number(r.notesCount) },
@@ -381,6 +408,7 @@ async function saveToQueue() {
     email: r.email,
     taskType: r.taskType,
     manager: r.manager,
+    assignedTo: r.assignedTo,
     vehicle: r.vehicleTitle,
     stock: r.stock,
     vin: r.vin,
@@ -390,7 +418,7 @@ async function saveToQueue() {
     discount: p.discount ?? '',
     special: p.special ?? '',
     withFees: p.withFees ?? '',
-    sharedWith: sharedVoi(state.queue, r),
+    sharedWith: sharedListFor(r),
     flags: state.evaluation.flags.filter((f) => f.level !== 'info').map((f) => f.code),
     status: 'drafted',
     sms: $('#sms-out').value,
@@ -443,14 +471,20 @@ function download(blob, filename) {
 function renderTasks() {
   const sec = $('#tasks-section');
   sec.hidden = !state.tasks.length;
-  const actionable = state.tasks.filter((t) => t.type !== 'call').length;
-  $('#tasks-count').textContent = `(${actionable} email/text · ${state.tasks.length - actionable} calls for you)`;
+  const actionable = state.tasks.filter((t) => t.type === 'email' || t.type === 'text').length;
+  $('#tasks-count').textContent = `(${actionable} email/text of ${state.tasks.length})`;
+  const label = { email: 'email', text: 'text', call: 'call · yours', other: 'internal', unknown: '?' };
   $('#tasks-list').innerHTML = state.tasks
     .map(
-      (t, i) => `<li class="${t.type}">
-        <span class="tag ${t.type}">${escapeHtml(t.type)}</span>
-        <span class="name" data-task="${i}">${escapeHtml(t.customer)}</span>
-        <span class="hint">${escapeHtml(t.vehicle || t.subject || '')}</span>
+      (t, i) => `<li class="${t.type === 'email' || t.type === 'text' ? '' : 'call'} ${state.pickedTask === t ? 'picked' : ''}">
+        <span class="tag ${t.type}">${label[t.type] || t.type}</span>
+        <span class="task-main">
+          <span class="name" data-task="${i}">${escapeHtml(t.customer || '(no name)')}</span>
+          ${t.isPriceQuote ? '<span class="tag">💲 price quote</span>' : ''}
+          ${t.sharedWith?.length ? `<span class="tag" title="Also VOI for ${escapeHtml(t.sharedWith.join(', '))}">🔥 shared VOI</span>` : ''}
+          <br><span class="hint">${escapeHtml(t.vehicle)} ${t.stock ? `[${escapeHtml(t.stock)}]` : ''}</span>
+          <br><span class="hint">${escapeHtml(t.description || t.template || '')}</span>
+        </span>
       </li>`,
     )
     .join('');
@@ -608,12 +642,16 @@ function wire() {
     if (i === undefined) return;
     const t = state.tasks[Number(i)];
     state.expectedCustomer = t.customer;
+    state.pickedTask = t;
+    renderTasks();
     await navigator.clipboard.writeText(t.customer).catch(() => {});
     setStatus(
       t.type === 'call'
         ? `${t.customer} is a CALL task — that one's yours.`
-        : `Copied "${t.customer}". Search it in VinSolutions, open the customer, then Read Customer.`,
-      t.type === 'call' ? 'error' : 'ok',
+        : t.type === 'other'
+          ? `${t.customer}: internal task, nothing to send.`
+          : `Copied "${t.customer}". Open them in VinSolutions (click the name in My Tasks), then Read Customer.`,
+      t.type === 'email' || t.type === 'text' ? 'ok' : 'error',
     );
   };
 

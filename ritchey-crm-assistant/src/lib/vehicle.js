@@ -21,7 +21,7 @@ export function parseVehicleTitle(str) {
     if (STOP_TOKENS.test(make)) continue;
     const tokens = [];
     for (const t of rest) {
-      if (STOP_TOKENS.test(t) || /[:$#|]/.test(t)) break;
+      if (STOP_TOKENS.test(t) || /[:$#|()[\]]/.test(t)) break;
       tokens.push(t);
       if (tokens.length >= 4) break;
     }

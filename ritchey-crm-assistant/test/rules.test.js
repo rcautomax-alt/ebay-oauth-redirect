@@ -41,6 +41,23 @@ test('task assigned to BDC agent needs confirmation and names them', () => {
   assert.equal(canDraft(r, {}), false);
 });
 
+test('internal tasks are skipped', () => {
+  const r = evaluate({ ...base(), task: { type: 'other' } }, { settings });
+  assert.equal(r.mode, 'skip');
+  assert.equal(r.flags[0].code, 'NOT_CONTACT_TASK');
+});
+
+test('task Assigned To someone else needs confirmation even if Manager is me', () => {
+  const r = evaluate({ ...base(), assignedTo: 'Michael Crynock' }, { settings });
+  assert.ok(r.flags.find((f) => f.code === 'TASK_NOT_MINE').message.includes('Michael Crynock'));
+  assert.equal(canDraft(r, {}), false);
+});
+
+test('Assigned To me with no Manager field is fine', () => {
+  const r = evaluate({ ...base(), manager: null, assignedTo: 'Rick Clemons' }, { settings });
+  assert.ok(!codes(r).some((c) => /MANAGER|NOT_MINE/.test(c)));
+});
+
 test('manager field variants that are still me', () => {
   assert.ok(isMe('Clemons, Rick', settings));
   assert.ok(isMe('Rick Clemons (Pre-Owned Sales Manager)', settings));
