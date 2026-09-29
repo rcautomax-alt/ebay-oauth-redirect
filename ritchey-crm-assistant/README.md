@@ -1,4 +1,4 @@
-# Ritchey CRM Assistant (v0.6.1)
+# Ritchey CRM Assistant (v0.6.2)
 
 A Chrome extension that sits in a side panel next to VinSolutions. It reads the customer you have open, checks the vehicle of interest against the website (ritcheyautos.com), and drafts the **"\*10 Day: MGR | Send Out Price"** text and email for you to review.
 
@@ -57,6 +57,11 @@ A Chrome extension that sits in a side panel next to VinSolutions. It reads the 
 **Flaky session:** frame reads retry automatically with backoff. If VinSolutions logged you out, the panel says so. Log back in, then hit **Retry**, and nothing you typed is lost. The panel also remembers the current customer if you close it.
 
 ---
+
+## Troubleshooting
+
+- **Price / alternatives lookups fail, and `chrome://extensions` → Errors shows "blocked by CORS policy":** Chrome is withholding the extension's access to ritcheyautos.com. Click **Allow website access** in the red banner at the top of the panel, or go to `chrome://extensions` → **Details** → **Site access** and choose **On all sites** (or add ritcheyautos.com under *On specific sites*). VinSolutions keeps working either way, because clicking the icon grants the tab you're on.
+- **Old errors stick around** on the extension's Errors page until you click **Clear all**. Clear them after an update, so anything that shows up afterward is new.
 
 ## Capture Mode: help me tune the reader
 

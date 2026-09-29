@@ -196,12 +196,58 @@ async function extractViaTab(url) {
   }
 }
 
+// ---- Website access ------------------------------------------------------
+// Chrome can withhold the extension's access to ritcheyautos.com (Details →
+// Site access → "On click"). VinSolutions still works then — clicking the
+// icon grants the tab you're on — but background price lookups get blocked
+// with a CORS error. Check for it, and offer a button to ask Chrome for it.
+function siteOrigins() {
+  const origins = new Set(['https://*.ritcheyautos.com/*', 'https://ritcheyautos.com/*']);
+  for (const k of ['inventoryBase', 'inventorySearchAll']) {
+    try {
+      origins.add(`${new URL(state.settings[k]).origin}/*`);
+    } catch {
+      /* not a URL */
+    }
+  }
+  return [...origins];
+}
+
+async function hasSiteAccess() {
+  try {
+    return await chrome.permissions.contains({ origins: siteOrigins() });
+  } catch {
+    return false;
+  }
+}
+
+async function refreshSiteAccessBanner() {
+  $('#site-access').hidden = await hasSiteAccess();
+}
+
+async function requestSiteAccess() {
+  try {
+    const ok = await chrome.permissions.request({ origins: siteOrigins() });
+    setStatus(ok ? 'Website access allowed — price and alternatives lookups will work now.' : 'Website access not allowed — lookups will stay blocked.', ok ? 'ok' : 'error');
+  } catch (err) {
+    setStatus(`Couldn't ask Chrome for access (${err.message}). Use chrome://extensions → Details → Site access → On all sites.`, 'error');
+  }
+  refreshSiteAccessBanner();
+}
+
+class NoAccessError extends Error {}
+
 // Once a plain download of the site has returned vehicles, we know the site
 // doesn't need JavaScript to list them — so an empty result really means
 // "not there" and the slow hidden-tab fallback can be skipped.
 let siteFetchWorks = false;
 
 async function loadResults(url, tried) {
+  if (!(await hasSiteAccess())) {
+    $('#site-access').hidden = false;
+    tried.push({ url, count: 0, note: 'Chrome is blocking website access — click "Allow website access" at the top' });
+    throw new NoAccessError('Chrome is blocking the extension from reading ritcheyautos.com. Click "Allow website access" at the top of the panel.');
+  }
   let vehicles = [];
   try {
     vehicles = await withRetry(() => extractViaFetch(url), { tries: 2 });
@@ -268,7 +314,18 @@ async function addVehicle(listKey, inputSel) {
     state[listKey].push(blankVehicle());
   } else {
     setStatus(`Looking up ${q} on the website…`);
-    const v = await findVehicleByQuery(q);
+    let v;
+    try {
+      v = await findVehicleByQuery(q);
+    } catch (err) {
+      // Website blocked: still add a row to fill in by hand.
+      v = { ...blankVehicle(), [isPlausibleVin(q) ? 'vin' : 'stock']: q, found: false };
+      state[listKey].push(v);
+      setStatus(err.message, 'error');
+      $(inputSel).value = '';
+      renderVehicleLists();
+      return;
+    }
     state[listKey].push(v);
     const otherStore = v.store?.status === 'excluded';
     setStatus(
@@ -1045,6 +1102,7 @@ function wire() {
   $('#btn-alts').onclick = () => busy('Searching…', runAlternatives);
   $('#btn-draft').onclick = generateDrafts;
   $('#btn-save').onclick = saveToQueue;
+  $('#btn-site-access').onclick = requestSiteAccess;
   $('#btn-fs-copy').onclick = (e) => copyFreestyle(e);
   $('#btn-fs-open').onclick = (e) => copyFreestyle(e, { openClaude: true });
   $('#btn-fs-use').onclick = useFreestyleReply;
@@ -1213,6 +1271,7 @@ function wire() {
 async function boot() {
   wire();
   state.settings = await storage.loadSettings();
+  refreshSiteAccessBanner();
   state.queue = await storage.loadQueue();
   const working = await storage.loadWorking();
   if (working?.record) Object.assign(state, working, { drafts: null });
