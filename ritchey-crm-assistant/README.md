@@ -1,4 +1,4 @@
-# Ritchey CRM Assistant (v0.3)
+# Ritchey CRM Assistant (v0.4)
 
 A Chrome extension that sits in a side panel next to VinSolutions. It reads the customer you have open, checks the vehicle of interest against ritcheybuickgmc.com, and drafts the **"\*10 Day: MGR | Send Out Price"** text and email for you to review.
 
@@ -42,6 +42,11 @@ A Chrome extension that sits in a side panel next to VinSolutions. It reads the 
 5. **Generate drafts.** You get the text and email (bold pricing block, no signature since VinSolutions adds it). Both are editable in place.
    - **Copy email (keeps bold)** puts formatted text on the clipboard, so bold survives pasting into the VinSolutions editor.
 6. **Save to today's queue.** **Export CSV** gives you the day's list for your spreadsheet.
+
+**✍️ Freestyle messages** are for anything outside the templates: a trade bump, a bad phone number, a price drop. No API key needed.
+1. Open **✍️ Freestyle message**, type what you want to say (or click a starter like *Trade bump* or *Bad phone #*), and pick Text/Email and Language as usual.
+2. Click **Copy request for Claude**, then paste it into Claude (**Open Claude ↗**). The request includes the customer's first name, vehicle, stock #, your pricing (if you tick the box), and recent notes with phone numbers and emails stripped out. Their full name, phone and email are never included.
+3. Paste Claude's reply into the box and click **Use these drafts**. They land in the same Text/Email boxes, so the copy buttons and **Save to today's queue** work the same way. Freestyle entries show ✍️ in the queue.
 
 **Sold or not-real-inventory VOI:** no price quote. It searches the same model on the website, pre-checks up to 3 units closest in price (±$5,000 window), and drafts a "that one sold, here are a few similar options" text and email. Uncheck any you don't want offered.
 

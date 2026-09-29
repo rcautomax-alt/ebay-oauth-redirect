@@ -41,6 +41,7 @@ const CSV_COLS = [
   ['withFees', 'Price w/ Fees'],
   ['sharedWith', 'Shared VOI With'],
   ['flags', 'Flags'],
+  ['freestyleAsk', 'Freestyle Ask'],
   ['status', 'Status'],
 ];
 

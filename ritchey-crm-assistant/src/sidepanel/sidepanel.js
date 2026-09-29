@@ -12,6 +12,7 @@ import { buildDrafts } from '../lib/templates.js';
 import { sharedVoi, upsert, toCsv } from '../lib/queue.js';
 import { withRetry, sleep, SessionError } from '../lib/retry.js';
 import { scrubPii } from '../lib/scrub.js';
+import { STARTERS, buildFreestylePrompt, parseClaudeReply, emailTextToHtml } from '../lib/freestyle.js';
 
 const $ = (sel) => document.querySelector(sel);
 
@@ -36,6 +37,7 @@ const state = {
   discount: null,
   pricing: null,
   drafts: null,
+  draftKind: null, // 'template' | 'freestyle'
   queue: [],
 };
 
@@ -297,6 +299,11 @@ async function readCustomer({ expectName = null } = {}) {
         userSaysSold: false,
       });
       $('#user-sold').checked = false;
+      // Don't let a freestyle message meant for the last customer carry over.
+      state.draftKind = null;
+      $('#fs-instruction').value = '';
+      $('#fs-reply').value = '';
+      $('#fs-prompt').textContent = '';
       renderCustomer();
       const result = reevaluate();
       setStatus('Customer read. Review the fields — anything wrong, just fix it.', 'ok');
@@ -466,6 +473,7 @@ function generateDrafts() {
       settings: state.settings,
       followUp: Number(r.notesCount) > 0,
     });
+    state.draftKind = 'template';
     renderDrafts();
     setStatus('Drafts ready. Review, tweak, copy — nothing gets sent from here.', 'ok');
   } catch (err) {
@@ -473,8 +481,54 @@ function generateDrafts() {
   }
 }
 
+function freestylePrompt() {
+  return buildFreestylePrompt({
+    instruction: $('#fs-instruction').value,
+    record: state.record,
+    settings: state.settings,
+    lang: state.lang,
+    channels: state.channels,
+    pricing: $('#fs-pricing').checked ? state.pricing : null,
+    notesExcerpt: state.notesExcerpt,
+  });
+}
+
+async function copyFreestyle() {
+  if (!$('#fs-instruction').value.trim()) {
+    setStatus('Type what you want to say first.', 'error');
+    return;
+  }
+  const prompt = freestylePrompt();
+  $('#fs-prompt').textContent = prompt;
+  try {
+    await navigator.clipboard.writeText(prompt);
+    setStatus('Request copied. Paste it into Claude, then paste the reply back here.', 'ok');
+  } catch (err) {
+    setStatus(`Copy failed (${err.message}) — copy it from the preview instead.`, 'error');
+  }
+}
+
+function useFreestyleReply() {
+  const reply = parseClaudeReply($('#fs-reply').value);
+  if (!reply.sms && !reply.email) {
+    setStatus("Couldn't find a text or email in that reply.", 'error');
+    return;
+  }
+  state.drafts = {
+    sms: reply.sms,
+    subject: reply.subject,
+    emailHtml: emailTextToHtml(reply.email),
+  };
+  state.draftKind = 'freestyle';
+  // Freestyle is your call, so it isn't held back by the task checks — the
+  // flags above are still there to read.
+  $('#draft-section').hidden = false;
+  renderDrafts();
+  setStatus('Freestyle drafts loaded below. Review, tweak, copy — nothing gets sent from here.', 'ok');
+}
+
 async function saveToQueue() {
-  const r = state.record;
+  const r = state.record || {};
   const p = state.pricing || {};
   const entry = {
     savedAt: new Date().toLocaleTimeString(),
@@ -488,13 +542,14 @@ async function saveToQueue() {
     stock: r.stock,
     vin: r.vin,
     crmStatus: r.crmStatus,
-    mode: state.evaluation.mode,
+    mode: state.draftKind === 'freestyle' ? 'freestyle' : state.evaluation?.mode || '',
     asking: p.asking ?? '',
     discount: p.discount ?? '',
     special: p.special ?? '',
     withFees: p.withFees ?? '',
     sharedWith: sharedListFor(r),
-    flags: state.evaluation.flags.filter((f) => f.level !== 'info').map((f) => f.code),
+    flags: (state.evaluation?.flags || []).filter((f) => f.level !== 'info').map((f) => f.code),
+    freestyleAsk: state.draftKind === 'freestyle' ? $('#fs-instruction').value.trim() : '',
     status: 'drafted',
     sms: $('#sms-out').value,
     emailSubject: $('#email-subject').value,
@@ -691,7 +746,7 @@ function renderQueue() {
   $('#queue-list').innerHTML = state.queue.length
     ? state.queue
         .map(
-          (q, i) => `<li><span class="who"><b>${escapeHtml(q.customerName)}</b> — ${escapeHtml(q.vehicle || '')} ${q.stock ? `#${escapeHtml(q.stock)}` : ''}
+          (q, i) => `<li><span class="who">${q.mode === 'freestyle' ? '✍️ ' : ''}<b>${escapeHtml(q.customerName || '(no customer read)')}</b> — ${escapeHtml(q.vehicle || '')} ${q.stock ? `#${escapeHtml(q.stock)}` : ''}
             ${q.withFees ? ` — ${money(q.withFees)}` : ''} ${q.sharedWith?.length ? '🔥' : ''}</span>
             <button data-reopen="${i}">Open</button></li>`,
         )
@@ -728,6 +783,16 @@ function wire() {
   $('#btn-alts').onclick = () => busy('Searching…', runAlternatives);
   $('#btn-draft').onclick = generateDrafts;
   $('#btn-save').onclick = saveToQueue;
+  $('#btn-fs-copy').onclick = copyFreestyle;
+  $('#btn-fs-use').onclick = useFreestyleReply;
+  $('#fs-starters').innerHTML = STARTERS.map((s, i) => `<button data-starter="${i}">${escapeHtml(s.label)}</button>`).join('');
+  $('#fs-starters').onclick = (e) => {
+    const i = e.target.dataset.starter;
+    if (i === undefined) return;
+    const box = $('#fs-instruction');
+    box.value = (box.value ? `${box.value.trimEnd()} ` : '') + STARTERS[Number(i)].text;
+    box.focus();
+  };
 
   $('#tasks-list').onclick = async (e) => {
     const i = e.target.dataset.cust;

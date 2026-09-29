@@ -96,6 +96,24 @@
     <button id="btn-alts">Search website for alternatives</button>
   </section>
 
+  <details id="freestyle-section">
+    <summary>✍️ Freestyle message</summary>
+    <p class="hint">Say it your way (trade bump, bad number, anything). Uses the customer read above if there is one, plus the Text/Email and Language choices.</p>
+    <div id="fs-starters" class="row"></div>
+    <textarea id="fs-instruction" rows="4" placeholder="e.g. I'm willing to give $1,500 more for her trade. Keep it casual."></textarea>
+    <label class="check"><input type="checkbox" id="fs-pricing"> Include the pricing I've worked up</label>
+    <div class="row">
+      <button id="btn-fs-copy" class="primary">1. Copy request for Claude</button>
+      <a href="https://claude.ai/new" target="_blank" rel="noopener">Open Claude ↗</a>
+    </div>
+    <details>
+      <summary class="hint">Preview the request</summary>
+      <pre id="fs-prompt"></pre>
+    </details>
+    <textarea id="fs-reply" rows="5" placeholder="2. Paste Claude's reply here"></textarea>
+    <button id="btn-fs-use">3. Use these drafts</button>
+  </details>
+
   <section id="draft-section" hidden>
     <button id="btn-draft" class="primary wide-btn">Generate drafts</button>
     <p id="draft-blocked" class="hint warn" hidden></p>
