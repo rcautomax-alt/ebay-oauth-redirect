@@ -283,3 +283,68 @@ test('capture scrubbing', () => {
   const s = scrubPii('Jane Smith jane@x.com (386) 555-0101 lives at 123 Main St. <input value="Jane">', ['Jane Smith']);
   assert.ok(!/jane|555|Main St/i.test(s), s);
 });
+
+// Rows shaped exactly like probeTaskList() returns from the real My Tasks
+// table (names made up).
+test('structured task rows: icon decides the type; email + text Send Out Price; no-stock leads', async () => {
+  const { tasksFromDom } = await import('../src/lib/vin-parser.js');
+  const rows = [
+    {
+      rowKey: '1', customer: 'Faith Cole', vehicle: '2022 Kia K5 [242239A]', section: 'Follow Ups', status: 'Active Lead',
+      tasks: [
+        { taskId: 'a', icon: 'Phone', note: 'SALES MGR: Day 10. Call Customer with Manager Special Price.', template: '', assignedTo: 'Rick Clemons' },
+        { taskId: 'b', icon: 'Email', note: 'SALES MGR: Day 10. Send out Manager Special Price Quote', template: '*10 Day: MGR | Send Out Price', assignedTo: 'Rick Clemons' },
+        { taskId: 'c', icon: 'Text', note: 'SALES MGR: Day 10. Send out Manager Special Price Quote', template: '*10 Day: MGR | Send Out Price.', assignedTo: 'Rick Clemons' },
+      ],
+    },
+    {
+      rowKey: '2', customer: 'Latoya Park', vehicle: '2022 Kia K5 [242239A]', section: 'Follow Ups',
+      tasks: [{ taskId: 'd', icon: 'Generic', note: 'MISSED Appointment - reach out to make contact and save the deal!', template: '', assignedTo: 'Rick Clemons' }],
+    },
+    {
+      rowKey: '3', customer: 'Chad Walt', vehicle: '2026 Chevrolet Silverado 1500', section: 'Follow Ups',
+      tasks: [{ taskId: 'e', icon: 'Text', note: 'SP: Day 5 Contacted internet lead. Send a custom text message.', template: 'SP: Blank Text', assignedTo: 'Rick Clemons' }],
+    },
+    {
+      rowKey: '4', customer: 'Steve Denn', vehicle: '2019 GMC Acadia [P12138]', section: 'Overdue Tasks',
+      tasks: [{ taskId: 'f', icon: 'Email', note: 'USED SALES MANAGER: EMAIL Day:4 | OFF Pace... Today Only Deal', template: 'PQ | *04 Day: SM | Off Pace Today Only Deal', assignedTo: 'Rick Clemons' }],
+    },
+    {
+      rowKey: '5', customer: 'Alert Only', vehicle: '', section: 'Follow Ups',
+      tasks: [{ taskId: 'g', icon: 'Alert', note: 'You have been assigned to this customer', template: '', assignedTo: 'Rick Clemons' }],
+    },
+  ];
+  const t = tasksFromDom([...rows, rows[0]]); // duplicate row from a second frame is ignored
+  assert.deepEqual(t.map((x) => `${x.customer}|${x.stock || '-'}|${x.type}${x.isPriceQuote ? '|$' : ''}`), [
+    'Faith Cole|242239A|call',
+    'Faith Cole|242239A|email|$',
+    'Faith Cole|242239A|text|$',
+    'Latoya Park|242239A|other',
+    'Chad Walt|-|text',
+    'Steve Denn|P12138|email',
+    'Alert Only|-|other',
+  ]);
+  assert.equal(t[0].vehicle, '2022 Kia K5');
+  assert.equal(t[4].vehicle, '2026 Chevrolet Silverado 1500');
+  assert.deepEqual(t[1].sharedWith, ['Latoya Park']);
+});
+
+test('frames are matched by URL even when they have no names', async () => {
+  const { splitPanes } = await import('../src/lib/vin-parser.js');
+  const frames = [
+    { name: 'carfax', isTop: true, url: 'https://vinsolutions.app.coxautoinc.com/vinconnect/#/CarDashboard/Pages/LeadManagement/ActiveLeadsLayout.aspx?x', text: 'My Tasks' },
+    { name: '', url: 'https://vinsolutions.app.coxautoinc.com/CarDashboard/Pages/CRM/CustomerDashboard.aspx?x', text: 'Customer Dashboard' },
+    { name: '', url: 'https://vinsolutions.app.coxautoinc.com/CarDashboard/Pages/rims2.aspx?x', text: 'Lead Info' },
+  ];
+  const { left, right } = splitPanes(frames);
+  assert.deepEqual(left.map((f) => f.text), ['My Tasks']);
+  assert.deepEqual(right.map((f) => f.text), ['Customer Dashboard', 'Lead Info']);
+});
+
+test('exact VIN/stock search URL matches the VinSolutions View VDP link', async () => {
+  const { stockOrVinUrl } = await import('../src/lib/inventory.js');
+  assert.equal(
+    stockOrVinUrl('https://www.ritcheybuickgmc.com/searchall.aspx', '1GKKRSKD2HJ284655'),
+    'https://www.ritcheybuickgmc.com/searchall.aspx?stockOrVIN=1GKKRSKD2HJ284655&q=1GKKRSKD2HJ284655',
+  );
+});

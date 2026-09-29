@@ -10,14 +10,13 @@ function inPane(frame, re) {
 }
 
 export function splitPanes(frames, map = VIN_MAP) {
-  const left = frames.filter((f) => inPane(f, map.frames.left));
-  let right = frames.filter((f) => inPane(f, map.frames.right));
-  if (!right.length) {
-    // Unknown layout (e.g. a popped-out customer window): use everything that
-    // isn't the task list.
-    right = frames.filter((f) => !inPane(f, map.frames.left));
-  }
-  return { left, right };
+  const fr = map.frames;
+  const isRight = (f) => fr.customerUrl.test(f.url || '') || inPane(f, fr.right);
+  const right = frames.filter(isRight);
+  const left = frames.filter((f) => !isRight(f) && (fr.taskListUrl.test(f.url || '') || inPane(f, fr.left)));
+  // Unknown layout (e.g. a popped-out customer window): use everything that
+  // isn't the task list.
+  return { left, right: right.length ? right : frames.filter((f) => !left.includes(f)) };
 }
 
 export function detectSessionProblem(frames, map = VIN_MAP) {
@@ -132,6 +131,15 @@ export function parseTaskText(text, map = VIN_MAP) {
       const m = c.match(tl.vehicleWithStock);
       return m && isPlausibleStock(m[2]);
     });
+    // A vehicle with no stock # (e.g. "2026 Chevrolet Silverado 1500" on a
+    // trade-in lead) still starts a new customer when it follows a name.
+    if (vehCellIdx < 0 && cells.length === 1 && looksLikeName(prevFirstCell) && /^(?:19|20)\d{2}\s+[A-Za-z]/.test(line)) {
+      lead = { customer: prevFirstCell, vehicle: line, stock: '' };
+      buf = [];
+      prevFirstCell = cells[0];
+      continue;
+    }
+
     if (vehCellIdx >= 0) {
       const m = cells[vehCellIdx].match(tl.vehicleWithStock);
       // The customer name sits right above the vehicle (same cell, next line),
@@ -182,6 +190,48 @@ export function markSharedVoi(tasks) {
   });
 }
 
+// Rows from probeTaskList() (the real page structure) -> flat task list.
+export function tasksFromDom(rows, map = VIN_MAP) {
+  const tl = map.taskList;
+  const tasks = [];
+  const seen = new Set(); // the same task can surface in more than one frame
+  for (const row of rows) {
+    const m = (row.vehicle || '').match(tl.vehicleWithStock);
+    const hasStock = m && isPlausibleStock(m[2]);
+    const lead = {
+      customer: row.customer,
+      vehicle: hasStock ? m[1].trim() : (row.vehicle || '').trim(),
+      stock: hasStock ? m[2] : '',
+    };
+    for (const t of row.tasks || []) {
+      if (t.taskId) {
+        if (seen.has(t.taskId)) continue;
+        seen.add(t.taskId);
+      }
+      const full = `${t.note} ${t.template ? `Template: ${t.template}` : ''}`;
+      const byIcon = map.taskIcons[(t.icon || '').toLowerCase()];
+      let type = byIcon || classifyTaskType(full, map);
+      if (row.section && tl.callSection.test(row.section)) type = 'call';
+      tasks.push({
+        ...lead,
+        rowKey: row.rowKey || '',
+        taskId: t.taskId || '',
+        section: row.section || '',
+        status: row.status || '',
+        vehicleStruck: !!row.vehicleStruck,
+        description: t.note,
+        template: t.template || null,
+        assignedTo: t.assignedTo || '',
+        icon: t.icon || '',
+        type,
+        isPriceQuote: tl.priceQuote.test(full),
+      });
+    }
+  }
+  return markSharedVoi(tasks);
+}
+
+// Text-only fallback (older layouts, or if the React table changes).
 export function parseTaskList(frames, map = VIN_MAP) {
   const { left } = splitPanes(frames, map);
   const sources = left.length ? left : frames;

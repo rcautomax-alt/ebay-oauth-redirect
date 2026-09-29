@@ -110,3 +110,15 @@ test('customer on screen differs from the task you picked', () => {
   const r = evaluate(base(), { settings, expectedCustomer: 'Maria Lopez' });
   assert.ok(codes(r).includes('CUSTOMER_MISMATCH'));
 });
+
+test('email/text task with a different template needs confirmation', () => {
+  const rec = { ...base(), task: { type: 'email', isPriceQuote: false, template: 'PQ | Day 7: SM/ Best Final Offer' } };
+  const r = evaluate(rec, { settings });
+  assert.ok(r.flags.find((f) => f.code === 'OTHER_TEMPLATE').message.includes('Day 7'));
+  assert.equal(canDraft(r, {}), false);
+});
+
+test('Send Out Price task has no template flag', () => {
+  const rec = { ...base(), task: { type: 'email', isPriceQuote: true, template: '*10 Day: MGR | Send Out Price' } };
+  assert.ok(!codes(evaluate(rec, { settings })).includes('OTHER_TEMPLATE'));
+});

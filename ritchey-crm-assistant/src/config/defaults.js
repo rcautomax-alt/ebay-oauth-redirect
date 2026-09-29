@@ -13,7 +13,7 @@ export const DEFAULT_SETTINGS = {
 
   // Known managers / BDC agents — used to make the "assigned to someone else"
   // flag say who it is.
-  otherManagers: ['Arthur Deeley', 'Michael Crynock'],
+  otherManagers: ['Arthur Deeley', 'Michael Crynock', 'Coreen Arbore'],
 
   // Flat add-on for every deal. Price with Fees = Special Price + sum of these.
   fees: [
@@ -23,6 +23,8 @@ export const DEFAULT_SETTINGS = {
   ],
 
   inventoryBase: 'https://www.ritcheybuickgmc.com/searchused.aspx',
+  // Exact search VinSolutions' own "View VDP" button uses.
+  inventorySearchAll: 'https://www.ritcheybuickgmc.com/searchall.aspx',
   // Price labels on the inventory site, in priority order.
   priceLabels: ['SALE PRICE', 'Ritchey Price', 'Internet Price', 'Our Price'],
 

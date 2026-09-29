@@ -43,6 +43,12 @@ export function evaluate(record, ctx) {
     add('confirm', 'TASK_TYPE_UNKNOWN', "Couldn't read the task type. Confirm this is an email/text task, not a call.");
   }
 
+  // This tool drafts the "*10 Day: MGR | Send Out Price" template. Other
+  // price-quote templates (Day 4 Off Pace, Day 7 Best & Final) aren't built yet.
+  if (record.task?.isPriceQuote === false && record.task?.template) {
+    add('confirm', 'OTHER_TEMPLATE', `This task uses template "${record.task.template}". Drafts below follow *10 Day: MGR | Send Out Price — use them anyway?`);
+  }
+
   // 2. Right customer on screen?
   if (expectedCustomer && record.customerName && nameKey(expectedCustomer) !== nameKey(record.customerName)) {
     add('confirm', 'CUSTOMER_MISMATCH', `You picked "${expectedCustomer}" but the screen shows "${record.customerName}".`);

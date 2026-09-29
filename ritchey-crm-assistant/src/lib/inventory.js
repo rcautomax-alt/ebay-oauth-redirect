@@ -5,6 +5,11 @@ export function stockSearchUrl(base, stock) {
   return `${base}?stock=${encodeURIComponent(String(stock).trim())}`;
 }
 
+export function stockOrVinUrl(searchAllBase, value) {
+  const v = encodeURIComponent(String(value).trim());
+  return `${searchAllBase}?stockOrVIN=${v}&q=${v}`;
+}
+
 export function modelSearchUrl(base, model) {
   return `${base}?model=${encodeURIComponent(String(model).trim())}`;
 }

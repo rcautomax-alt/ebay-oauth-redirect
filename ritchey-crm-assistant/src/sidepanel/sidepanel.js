@@ -1,11 +1,11 @@
 import { DEFAULT_SETTINGS, feeTotal } from '../config/defaults.js';
 import { money, parseMoney, escapeHtml, todayKey, firstNameOf, nameKey } from '../lib/format.js';
 import { computePricing } from '../lib/pricing.js';
-import { parseCustomer, parseTaskList, detectSessionProblem, splitPanes } from '../lib/vin-parser.js';
+import { parseCustomer, parseTaskList, tasksFromDom, pickTask, detectSessionProblem, splitPanes } from '../lib/vin-parser.js';
 import { parseVehicleTitle, normalizeStock } from '../lib/vehicle.js';
-import { probeFrame, captureFrame, extractVehicleCards } from '../lib/probes.js';
+import { probeFrame, probeTaskList, clickTaskCustomer, captureFrame, extractVehicleCards } from '../lib/probes.js';
 import {
-  stockSearchUrl, modelSearchUrl, vehiclesFromExtraction, findVehicle, pickAlternatives,
+  stockSearchUrl, modelSearchUrl, stockOrVinUrl, vehiclesFromExtraction, findVehicle, pickAlternatives,
 } from '../lib/inventory.js';
 import { evaluate, canDraft, unacknowledged } from '../lib/rules.js';
 import { buildDrafts } from '../lib/templates.js';
@@ -20,6 +20,7 @@ const $ = (sel) => document.querySelector(sel);
 const state = {
   settings: { ...DEFAULT_SETTINGS },
   tasks: [],
+  pqOnly: true, // task list filter: only customers with a Send Out Price task
   expectedCustomer: null,
   pickedTask: null, // the task you clicked in the list
   record: null, // flat, editable copy of the parsed customer
@@ -103,7 +104,9 @@ async function probeAllFrames(tabId) {
 
 // Read every frame, retrying while frames are still loading. Session
 // problems stop immediately so you can log back in and hit Retry.
-async function readVinSolutions({ needRight }) {
+// expectName: after clicking a customer in My Tasks, keep polling until their
+// dashboard has actually loaded (the old customer can linger for a second).
+async function readVinSolutions({ needRight, expectName = null }) {
   const tab = await activeTab();
   return withRetry(
     async () => {
@@ -120,9 +123,18 @@ async function readVinSolutions({ needRight }) {
         const len = right.reduce((n, f) => n + (f.text || '').length, 0);
         if (len < 80) throw new Error('Customer panel is empty or still loading.');
       }
+      if (expectName) {
+        const shown = parseCustomer(frames).customerName;
+        if (nameKey(shown) !== nameKey(expectName)) throw new Error(`Waiting for ${expectName}'s dashboard to load…`);
+      }
       return frames;
     },
-    { tries: 4, baseMs: 800, onRetry: (err, n) => setStatus(`${err.message} Retrying (${n})…`) },
+    {
+      tries: expectName ? 10 : 4,
+      baseMs: 800,
+      maxMs: 1500,
+      onRetry: (err, n) => setStatus(`${err.message} (${n})`),
+    },
   );
 }
 
@@ -181,6 +193,14 @@ async function loadResults(url, tried) {
 async function lookupInventory({ stock, vin, model }) {
   const base = state.settings.inventoryBase;
   const tried = [];
+  // 1. The exact VIN / stock search VinSolutions' "View VDP" button uses.
+  const exact = vin || stock;
+  if (exact && state.settings.inventorySearchAll) {
+    const url = stockOrVinUrl(state.settings.inventorySearchAll, exact);
+    const hit = findVehicle(await loadResults(url, tried), { stock, vin });
+    if (hit) return { found: true, vehicle: hit, source: url, modelResults: null, tried };
+  }
+  // 2. Used-inventory search by stock #.
   if (stock) {
     const url = stockSearchUrl(base, stock);
     const hit = findVehicle(await loadResults(url, tried), { stock, vin });
@@ -202,12 +222,18 @@ async function lookupInventory({ stock, vin, model }) {
 async function readTasks() {
   await busy('Reading task list…', async () => {
     try {
+      const tab = await activeTab();
       const frames = await readVinSolutions({ needRight: false });
-      state.tasks = parseTaskList(frames);
+      // Preferred: the real task table (icon = task type). Fallback: text.
+      const results = await chrome.scripting.executeScript({ target: { tabId: tab.id, allFrames: true }, func: probeTaskList });
+      const rows = results.flatMap((r) => r.result || []);
+      state.tasks = rows.length ? tasksFromDom(rows) : parseTaskList(frames);
+      state.pickedTask = null;
       renderTasks();
       const n = (type) => state.tasks.filter((t) => t.type === type).length;
       if (state.tasks.length) {
-        setStatus(`Found ${state.tasks.length} tasks: ${n('email') + n('text')} email/text, ${n('call')} calls (yours), ${n('other')} internal.`, 'ok');
+        const pq = groupCustomers(state.tasks).filter((c) => c.pqTasks.length).length;
+        setStatus(`${pq} customers need a Send Out Price. (${state.tasks.length} tasks: ${n('email') + n('text')} email/text, ${n('call')} calls for you, ${n('other')} internal.)`, 'ok');
       } else {
         setStatus("Couldn't find tasks on this screen. Open My Tasks, or use Capture Page and send it over so the reader can be tuned.", 'error');
       }
@@ -244,10 +270,10 @@ function recordFromParsed(p) {
   };
 }
 
-async function readCustomer() {
+async function readCustomer({ expectName = null } = {}) {
   await busy('Reading customer…', async () => {
     try {
-      const frames = await readVinSolutions({ needRight: true });
+      const frames = await readVinSolutions({ needRight: true, expectName });
       const parsed = parseCustomer(frames);
       // The task you clicked in the list is the one you're working, so its
       // type and assignment beat whatever the detail screen shows first.
@@ -279,9 +305,58 @@ async function readCustomer() {
       else if (result.mode === 'alternatives' && state.record.model) await runAlternatives();
       $('#discount').focus();
     } catch (err) {
-      setStatus(err.message, 'error', readCustomer);
+      setStatus(err.message, 'error', () => readCustomer());
     }
   });
+}
+
+// One entry per customer, with all of their tasks.
+function groupCustomers(tasks) {
+  const map = new Map();
+  for (const t of tasks) {
+    const key = t.rowKey || nameKey(t.customer);
+    if (!map.has(key)) {
+      map.set(key, { key, customer: t.customer, vehicle: t.vehicle, stock: t.stock, rowKey: t.rowKey, section: t.section, vehicleStruck: t.vehicleStruck, sharedWith: t.sharedWith || [], tasks: [] });
+    }
+    map.get(key).tasks.push(t);
+  }
+  return [...map.values()].map((c) => {
+    const pqTasks = c.tasks.filter((t) => t.isPriceQuote && (t.type === 'email' || t.type === 'text'));
+    return { ...c, pqTasks, channels: [...new Set(pqTasks.map((t) => t.type))] };
+  });
+}
+
+// Click the customer in My Tasks, wait for their dashboard, read it.
+async function workCustomer(c) {
+  const best = pickTask(c.tasks);
+  state.pickedTask = { ...best, customer: c.customer };
+  state.expectedCustomer = c.customer;
+  // The VinSolutions tasks say which channels to use (email and/or text);
+  // with no price-quote task, default to both.
+  const ch = c.channels.length ? c.channels : ['email', 'text'];
+  state.channels = { email: ch.includes('email'), sms: ch.includes('text') };
+  $('#ch-email').checked = state.channels.email;
+  $('#ch-sms').checked = state.channels.sms;
+  renderTasks();
+
+  let clicked = false;
+  try {
+    const tab = await activeTab();
+    const res = await chrome.scripting.executeScript({
+      target: { tabId: tab.id, allFrames: true },
+      func: clickTaskCustomer,
+      args: [c.rowKey || '', c.customer],
+    });
+    clicked = res.some((r) => r.result === true);
+  } catch (err) {
+    console.warn('click failed', err);
+  }
+  if (clicked) {
+    await readCustomer({ expectName: c.customer });
+  } else {
+    await navigator.clipboard.writeText(c.customer).catch(() => {});
+    setStatus(`Couldn't open ${c.customer} automatically — name copied. Open them in VinSolutions, then Read Customer.`, 'error');
+  }
 }
 
 async function runLookup() {
@@ -343,7 +418,7 @@ function currentEvaluation() {
     customerName: r.customerName,
     manager: r.manager,
     assignedTo: r.assignedTo,
-    task: { type: r.taskType },
+    task: { type: r.taskType, template: state.pickedTask?.template || null, isPriceQuote: state.pickedTask ? !!state.pickedTask.isPriceQuote : null },
     voi: { stock: r.stock, vin: r.vin, status: r.crmStatus },
     notes: { count: r.notesCount === '' || r.notesCount === null ? null : Number(r.notesCount) },
   };
@@ -428,6 +503,7 @@ async function saveToQueue() {
   state.queue = upsert(state.queue, entry);
   await storage.saveQueue(state.queue);
   renderQueue();
+  renderTasks();
   setStatus(`Saved ${r.customerName} to today's queue.`, 'ok');
 }
 
@@ -471,23 +547,39 @@ function download(blob, filename) {
 function renderTasks() {
   const sec = $('#tasks-section');
   sec.hidden = !state.tasks.length;
-  const actionable = state.tasks.filter((t) => t.type === 'email' || t.type === 'text').length;
-  $('#tasks-count').textContent = `(${actionable} email/text of ${state.tasks.length})`;
-  const label = { email: 'email', text: 'text', call: 'call · yours', other: 'internal', unknown: '?' };
-  $('#tasks-list').innerHTML = state.tasks
-    .map(
-      (t, i) => `<li class="${t.type === 'email' || t.type === 'text' ? '' : 'call'} ${state.pickedTask === t ? 'picked' : ''}">
-        <span class="tag ${t.type}">${label[t.type] || t.type}</span>
-        <span class="task-main">
-          <span class="name" data-task="${i}">${escapeHtml(t.customer || '(no name)')}</span>
-          ${t.isPriceQuote ? '<span class="tag">💲 price quote</span>' : ''}
-          ${t.sharedWith?.length ? `<span class="tag" title="Also VOI for ${escapeHtml(t.sharedWith.join(', '))}">🔥 shared VOI</span>` : ''}
-          <br><span class="hint">${escapeHtml(t.vehicle)} ${t.stock ? `[${escapeHtml(t.stock)}]` : ''}</span>
-          <br><span class="hint">${escapeHtml(t.description || t.template || '')}</span>
-        </span>
-      </li>`,
-    )
-    .join('');
+  const all = groupCustomers(state.tasks);
+  const pqCount = all.filter((c) => c.pqTasks.length).length;
+  // Price-quote customers first, then anything else with an email/text task.
+  const rank = (c) => (c.pqTasks.length ? 0 : c.tasks.some((t) => t.type === 'email' || t.type === 'text') ? 1 : 2);
+  const shown = all.filter((c) => !state.pqOnly || c.pqTasks.length).sort((a, b) => rank(a) - rank(b));
+  $('#tasks-count').textContent = `(${pqCount} Send Out Price of ${all.length} customers)`;
+  $('#pq-only').checked = state.pqOnly;
+  const icon = { call: '📞', email: '✉️', text: '💬', other: '⚙️', unknown: '?' };
+  const picked = state.pickedTask && nameKey(state.pickedTask.customer);
+  $('#tasks-list').innerHTML = shown.length
+    ? shown
+        .map((c) => {
+          const i = all.indexOf(c);
+          const saved = state.queue.some((q) => nameKey(q.customerName) === nameKey(c.customer));
+          const taskIcons = c.tasks
+            .map((t) => `<span class="tag ${t.type}" title="${escapeHtml(`${t.description || ''} ${t.template ? `· ${t.template}` : ''}`)}">${icon[t.type] || '?'}${t.isPriceQuote ? '💲' : ''}</span>`)
+            .join('');
+          const other = c.tasks.filter((t) => !t.isPriceQuote && (t.type === 'email' || t.type === 'text'));
+          return `<li class="${rank(c) === 2 ? 'call' : ''} ${picked === nameKey(c.customer) ? 'picked' : ''}">
+            <span class="task-main">
+              <span class="name" data-cust="${i}">${escapeHtml(c.customer || '(no name)')}</span>
+              ${saved ? '<span class="tag ok">✓ drafted</span>' : ''}
+              ${c.sharedWith.length ? `<span class="tag" title="Also VOI for ${escapeHtml(c.sharedWith.join(', '))}">🔥 shared: ${escapeHtml(c.sharedWith.join(', '))}</span>` : ''}
+              ${c.vehicleStruck ? '<span class="tag call">sold?</span>' : ''}
+              <br><span class="hint">${escapeHtml(c.vehicle || 'no vehicle')} ${c.stock ? `[${escapeHtml(c.stock)}]` : '— no stock #'} · ${escapeHtml(c.section)}</span>
+              <br>${taskIcons}
+              ${c.pqTasks.length ? `<span class="hint">Send Out Price by ${c.channels.join(' + ')}</span>` : ''}
+              ${other.length ? `<span class="hint">· other template: ${escapeHtml(other.map((t) => t.template || t.description).join('; '))}</span>` : ''}
+            </span>
+          </li>`;
+        })
+        .join('')
+    : '<li class="hint">No Send Out Price tasks. Uncheck the filter to see everything.</li>';
 }
 
 function renderCustomer() {
@@ -638,21 +730,24 @@ function wire() {
   $('#btn-save').onclick = saveToQueue;
 
   $('#tasks-list').onclick = async (e) => {
-    const i = e.target.dataset.task;
+    const i = e.target.dataset.cust;
     if (i === undefined) return;
-    const t = state.tasks[Number(i)];
-    state.expectedCustomer = t.customer;
-    state.pickedTask = t;
+    const c = groupCustomers(state.tasks)[Number(i)];
+    const contact = c.tasks.some((t) => t.type === 'email' || t.type === 'text');
+    if (!contact) {
+      setStatus(
+        c.tasks.some((t) => t.type === 'call')
+          ? `${c.customer}: call task only — that one's yours.`
+          : `${c.customer}: internal tasks only, nothing to send.`,
+        'error',
+      );
+      return;
+    }
+    await workCustomer(c);
+  };
+  $('#pq-only').onchange = (e) => {
+    state.pqOnly = e.target.checked;
     renderTasks();
-    await navigator.clipboard.writeText(t.customer).catch(() => {});
-    setStatus(
-      t.type === 'call'
-        ? `${t.customer} is a CALL task — that one's yours.`
-        : t.type === 'other'
-          ? `${t.customer}: internal task, nothing to send.`
-          : `Copied "${t.customer}". Open them in VinSolutions (click the name in My Tasks), then Read Customer.`,
-      t.type === 'email' || t.type === 'text' ? 'ok' : 'error',
-    );
   };
 
   $('#record-form').oninput = (e) => {

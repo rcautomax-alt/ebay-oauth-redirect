@@ -6,7 +6,11 @@
 // Info panel; tighten here (and nowhere else) as Capture Mode samples come in.
 
 export const VIN_MAP = {
+  // Frames have no reliable names, so they're matched by URL (with the old
+  // frame names kept as a fallback).
   frames: {
+    customerUrl: /CustomerDashboard\.aspx|rims2\.aspx|\/Pages\/CRM\//i,
+    taskListUrl: /ActiveLeads_WorkList|ActiveLeadsLayout|\/vinconnect\//i,
     left: /leftpane/i,
     right: /rightpane/i,
   },
@@ -56,7 +60,17 @@ export const VIN_MAP = {
     callSection: /call tracking/i,
   },
 
-  // Task classification, checked in this order. Calls are checked before
+  // Task icon titles in My Tasks -> our task types.
+  taskIcons: {
+    phone: 'call',
+    email: 'email',
+    text: 'text',
+    generic: 'other',
+    alert: 'other',
+  },
+
+  // Task classification from text (fallback when there's no icon), checked
+  // in this order. Calls are checked before
   // email/text so anything call-ish is skipped.
   taskTypes: {
     textReply: /^\s*text message reply received/i,

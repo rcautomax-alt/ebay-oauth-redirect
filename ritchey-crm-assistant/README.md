@@ -1,4 +1,4 @@
-# Ritchey CRM Assistant (v0.1)
+# Ritchey CRM Assistant (v0.3)
 
 A Chrome extension that sits in a side panel next to VinSolutions. It reads the customer you have open, checks the vehicle of interest against ritcheybuickgmc.com, and drafts the **"\*10 Day: MGR | Send Out Price"** text and email for you to review.
 
@@ -23,14 +23,12 @@ A Chrome extension that sits in a side panel next to VinSolutions. It reads the 
 
 ## Daily flow
 
-1. **Read Task List** (optional) while My Tasks is showing. Every task is listed with its type, read from the task text:
-   - **email/text:** "Send out Manager Special Price Quote," replies received, etc. A 💲 tag marks the "*10 Day: MGR | Send Out Price" ones.
-   - **call · yours:** "Call Customer with Manager Special Price," "…Purchase Script," Call Tracking Tasks. Greyed out.
-   - **internal:** "Sales rep changed…", "MGR: Check did Salesperson Send out Video?", "VISIT: NEXT DAY SAVE-A-DEAL". Greyed out, since there's nothing to send.
-   - 🔥 **shared VOI:** the same stock # shows up for more than one customer on the list.
-
-   Clicking a task makes it the one you're working, and copies the name.
-2. Open the customer in VinSolutions, then click **Read Customer**. The panel fills in:
+1. **Read Task List** while My Tasks is showing. The panel lists **customers who need a Send Out Price** (uncheck the filter to see everyone). Each task's type comes from VinSolutions' own icon: 📞 call (yours), ✉️ email, 💬 text, ⚙️ internal. Also shown:
+   - 💲 marks the "*10 Day: MGR | Send Out Price" tasks, and whether VinSolutions wants them by email, text, or both.
+   - 🔥 **shared** means another customer on the list has the same stock #.
+   - **sold?** means the vehicle is struck through in the list.
+   - **✓ drafted** means the customer is already saved in today's queue.
+2. **Click a customer's name.** The panel clicks them open in VinSolutions, waits for their dashboard, and reads it. (**Read Customer** still works for anyone you open yourself.) The panel fills in:
    - Customer, task type, Lead Manager, task Assigned To, vehicle, stock #, VIN, CRM status, and notes count. If the dashboard has no Vehicle Info section, the vehicle and stock # come from the task you clicked. **Every field is editable.** If the reader gets something wrong, fix it and the flags update.
    - **Flags:**
      - 🟥 **Call task:** skipped, no drafts.

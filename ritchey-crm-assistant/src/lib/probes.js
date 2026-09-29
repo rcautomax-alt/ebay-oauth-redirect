@@ -35,6 +35,83 @@ export function probeFrame() {
   };
 }
 
+// My Tasks list, read from the page structure (VinSolutions' React task
+// table): one entry per customer row, with every task under it. The icon
+// button's title ("Phone" / "Email" / "Text" / "Generic" / "Alert") is the
+// task type VinSolutions itself assigns. Returns [] on frames without it.
+export function probeTaskList() {
+  const textOf = (el) => (el ? (el.innerText || el.textContent || '').replace(/\s+/g, ' ').trim() : '');
+  const headers = Array.from(document.querySelectorAll('h3, [data-testid$="-title"]')).filter((h) => /\(\d+\)\s*$/.test(textOf(h)));
+  const sectionFor = (row) => {
+    let found = '';
+    for (const h of headers) {
+      // DOCUMENT_POSITION_FOLLOWING (4): the row comes after this header.
+      if (h.compareDocumentPosition(row) & 4) found = textOf(h);
+    }
+    return found.replace(/\s*\(\d+\)\s*$/, '');
+  };
+
+  const out = [];
+  const rows = Array.from(document.querySelectorAll('tr')).filter((tr) => tr.querySelector('[data-testid^="customer-name-"]'));
+  for (const row of rows) {
+    const nameCell = row.querySelector('[data-testid^="customer-name-"]');
+    const link = nameCell.querySelector('a');
+    const vehEl = nameCell.querySelector('[class*="VehicleText"]');
+    let vehicleStruck = false;
+    if (vehEl) {
+      try {
+        vehicleStruck = /line-through/.test(getComputedStyle(vehEl).textDecorationLine || getComputedStyle(vehEl).textDecoration || '');
+      } catch (e) {
+        /* no computed style (detached / parsed doc) */
+      }
+    }
+    const cells = Array.from(row.cells).map(textOf);
+    const detail = row.nextElementSibling && /expanded-row/.test(row.nextElementSibling.className) ? row.nextElementSibling : null;
+    const tasks = [];
+    if (detail) {
+      for (const btn of detail.querySelectorAll('button[data-action="icon"]')) {
+        const box = btn.parentElement;
+        const meta = {};
+        for (const s of box.querySelectorAll('[class*="DetailMeta"] > span')) {
+          const label = textOf(s.querySelector('[class*="DetailLabel"]')).replace(/:$/, '');
+          if (label) meta[label.toLowerCase()] = textOf(s).slice(textOf(s.querySelector('[class*="DetailLabel"]')).length).trim();
+        }
+        tasks.push({
+          taskId: btn.getAttribute('data-task-id') || '',
+          icon: btn.getAttribute('title') || btn.getAttribute('aria-label') || '',
+          note: textOf(box.querySelector('[class*="DetailNote"]')),
+          template: meta.template || '',
+          assignedTo: meta['assigned to'] || '',
+        });
+      }
+    }
+    out.push({
+      rowKey: row.getAttribute('data-row-key') || '',
+      customer: textOf(link) || textOf(nameCell),
+      vehicle: textOf(vehEl),
+      vehicleStruck,
+      status: cells[4] || '',
+      section: sectionFor(row),
+      tasks,
+    });
+  }
+  return out;
+}
+
+// Click a customer's name in the My Tasks list so VinSolutions opens their
+// dashboard. Navigation only — never touches Edit / Dismiss / send.
+export function clickTaskCustomer(rowKey, customer) {
+  const norm = (s) => String(s || '').replace(/\s+/g, ' ').trim().toLowerCase();
+  const cells = Array.from(document.querySelectorAll('[data-testid^="customer-name-"]'));
+  const hit =
+    (rowKey && cells.find((c) => c.closest('tr') && c.closest('tr').getAttribute('data-row-key') === rowKey)) ||
+    cells.find((c) => norm((c.querySelector('a') || c).textContent) === norm(customer));
+  const link = hit && hit.querySelector('a');
+  if (!link) return false;
+  link.click();
+  return true;
+}
+
 // Full-page capture for building/fixing the VinSolutions adapters. Scripts
 // and styles are dropped; PII scrubbing happens in the side panel afterward.
 export function captureFrame() {
