@@ -105,6 +105,26 @@ async function activeTab() {
   return tab;
 }
 
+// The VinSolutions tab — even when you're looking at another tab (Claude, the
+// website). Prefers the tab in front if it's VinSolutions, else the most
+// recently used VinSolutions tab.
+const VIN_TAB_URLS = ['https://*.coxautoinc.com/*', 'https://*.vinsolutions.com/*', 'https://*.vinmanager.com/*'];
+const isVinUrl = (u) => /coxautoinc\.com|vinsolutions\.com|vinmanager\.com/i.test(u || '');
+
+async function vinTab() {
+  const front = await activeTab().catch(() => null);
+  if (front && isVinUrl(front.url)) return front;
+  const tabs = await chrome.tabs.query({ url: VIN_TAB_URLS });
+  if (!tabs.length) throw new Error('No VinSolutions tab is open — open VinSolutions and try again.');
+  tabs.sort((a, b) => (b.lastAccessed || 0) - (a.lastAccessed || 0));
+  return tabs[0];
+}
+
+async function bringToFront(tab) {
+  await chrome.tabs.update(tab.id, { active: true }).catch(() => {});
+  await chrome.windows.update(tab.windowId, { focused: true }).catch(() => {});
+}
+
 async function probeAllFrames(tabId) {
   const results = await chrome.scripting.executeScript({ target: { tabId, allFrames: true }, func: probeFrame });
   return results.filter((r) => r.result).map((r) => ({ frameId: r.frameId, ...r.result }));
@@ -115,14 +135,14 @@ async function probeAllFrames(tabId) {
 // expectName: after clicking a customer in My Tasks, keep polling until their
 // dashboard has actually loaded (the old customer can linger for a second).
 async function readVinSolutions({ needRight, expectName = null }) {
-  const tab = await activeTab();
+  const tab = await vinTab();
   return withRetry(
     async () => {
       let frames;
       try {
         frames = await probeAllFrames(tab.id);
       } catch (err) {
-        throw new Error(`Couldn't read this tab (${err.message}). Is VinSolutions the active tab?`);
+        throw new Error(`Couldn't read VinSolutions (${err.message}). Try clicking into the VinSolutions tab, then Retry.`);
       }
       const problem = detectSessionProblem(frames);
       if (problem) throw new SessionError(problem);
@@ -373,7 +393,7 @@ async function lookupInventory({ stock, vin, model }) {
 async function readTasks() {
   await busy('Reading task list…', async () => {
     try {
-      const tab = await activeTab();
+      const tab = await vinTab();
       const frames = await readVinSolutions({ needRight: false });
       // Preferred: the real task table (icon = task type). Fallback: text.
       const results = await chrome.scripting.executeScript({ target: { tabId: tab.id, allFrames: true }, func: probeTaskList });
@@ -449,7 +469,7 @@ async function readCustomer({ expectName = null } = {}) {
         acks: {},
         inventory: null,
         alternatives: [],
-  fsVehicles: [], // vehicles to mention in a freestyle message
+        fsVehicles: [],
         asking: null,
         discount: null,
         pricing: null,
@@ -462,7 +482,7 @@ async function readCustomer({ expectName = null } = {}) {
       $('#fs-instruction').value = '';
       $('#fs-reply').value = '';
       $('#fs-prompt').textContent = '';
-      state.fsVehicles = [];
+      renderVehicleLists(); // clear the old customer's vehicle rows off screen
       renderCustomer();
       const result = reevaluate();
       setStatus('Customer read. Review the fields — anything wrong, just fix it.', 'ok');
@@ -527,7 +547,9 @@ async function workCustomer(c) {
 
   let clicked = false;
   try {
-    const tab = await activeTab();
+    const tab = await vinTab();
+    // Show VinSolutions so you see the customer open (you may be on Claude).
+    await bringToFront(tab);
     const res = await chrome.scripting.executeScript({
       target: { tabId: tab.id, allFrames: true },
       func: clickTaskCustomer,
@@ -1187,7 +1209,8 @@ function wire() {
   const onVehicleEdit = (e) => {
     const { list, idx, f } = e.target.dataset;
     if (!list || !f) return;
-    const v = state[list][Number(idx)];
+    const v = state[list]?.[Number(idx)];
+    if (!v) return; // row from a list that's since been cleared
     if (f === 'selected') v.selected = e.target.checked;
     else if (f === 'miles' || f === 'price') v[f] = parseMoney(e.target.value);
     else v[f] = e.target.value.trim();
@@ -1196,7 +1219,7 @@ function wire() {
     const rm = e.target.dataset.remove;
     if (!rm) return;
     const [list, idx] = rm.split(':');
-    state[list].splice(Number(idx), 1);
+    if (state[list]?.[Number(idx)]) state[list].splice(Number(idx), 1);
     renderVehicleLists();
   };
   for (const id of ['#alts-list', '#fs-vehicles']) {
