@@ -30,6 +30,13 @@ export const DEFAULT_SETTINGS = {
   // Price labels on the inventory site, in priority order.
   priceLabels: ['SALE PRICE', 'Ritchey Price', 'Internet Price', 'Our Price'],
 
+  // ritcheyautos.com lists every Ritchey store. You can only sell from these:
+  // a vehicle whose listing mentions one of these words is offered…
+  storesAllowed: ['Daytona'],
+  // …and one that mentions any of these is hidden. Listings that mention
+  // neither are kept but tagged "location?".
+  storesExcluded: ['Dublin', 'Melbourne'],
+
   // Alternatives for sold units: same model, within this many dollars.
   altPriceWindow: 5000,
   altLimit: 3,

@@ -5,7 +5,7 @@ import { parseCustomer, parseTaskList, tasksFromDom, pickTask, detectSessionProb
 import { parseVehicleTitle, normalizeStock, isPlausibleVin } from '../lib/vehicle.js';
 import { probeFrame, probeTaskList, clickTaskCustomer, captureFrame, extractVehicleCards } from '../lib/probes.js';
 import {
-  stockSearchUrl, modelSearchUrl, stockOrVinUrl, searchDropped, keywordSearchUrl, vehicleLink, vehiclesFromExtraction, findVehicle, pickAlternatives,
+  stockSearchUrl, modelSearchUrl, stockOrVinUrl, searchDropped, storeOf, keywordSearchUrl, vehicleLink, vehiclesFromExtraction, findVehicle, pickAlternatives,
 } from '../lib/inventory.js';
 import { evaluate, canDraft, unacknowledged } from '../lib/rules.js';
 import { buildDrafts } from '../lib/templates.js';
@@ -227,6 +227,10 @@ async function loadResults(url, tried) {
   return vehicles;
 }
 
+function withStore(v) {
+  return { ...v, store: storeOf(v, state.settings.storesAllowed || [], state.settings.storesExcluded || []) };
+}
+
 const blankVehicle = () => ({ title: '', stock: '', vin: null, miles: null, price: null, link: '', url: '', selected: true, manual: true });
 
 // Add a vehicle by stock #, VIN or website link. A fresh trade usually isn't
@@ -250,7 +254,11 @@ async function findVehicleByQuery(query) {
   const key = isVin ? { vin: q.toUpperCase() } : { stock: q };
   let hit = findVehicle(await loadResults(stockOrVinUrl(inventorySearchAll, q), tried), key);
   if (!hit && !isVin) hit = findVehicle(await loadResults(stockSearchUrl(inventoryBase, q), tried), key);
-  if (hit) return { ...blankVehicle(), ...hit, link: vehicleLink(hit, inventorySearchAll), found: true };
+  if (hit) {
+    const v = withStore({ ...blankVehicle(), ...hit, link: vehicleLink(hit, inventorySearchAll), found: true });
+    if (v.store.status === 'excluded') v.selected = false; // other store: added unchecked
+    return v;
+  }
   return { ...blankVehicle(), ...(isVin ? { vin: q.toUpperCase() } : { stock: q }), found: false };
 }
 
@@ -262,11 +270,14 @@ async function addVehicle(listKey, inputSel) {
     setStatus(`Looking up ${q} on the website…`);
     const v = await findVehicleByQuery(q);
     state[listKey].push(v);
+    const otherStore = v.store?.status === 'excluded';
     setStatus(
-      v.found
-        ? `Added ${v.title || q} from the website${v.price ? ` (${money(v.price)})` : ''}. Check the details.`
-        : `${q} isn't on the website yet (fresh trade?). Fill in the details by hand.`,
-      v.found ? 'ok' : 'error',
+      otherStore
+        ? `${v.title || q} is listed at the ${v.store.where} store — added unchecked, since you can't sell it from here.`
+        : v.found
+          ? `Added ${v.title || q} from the website${v.price ? ` (${money(v.price)})` : ''}. Check the details.`
+          : `${q} isn't on the website yet (fresh trade?). Fill in the details by hand.`,
+      v.found && !otherStore ? 'ok' : 'error',
     );
   }
   $(inputSel).value = '';
@@ -454,6 +465,7 @@ async function runLookup() {
   setStatus(`Checking the website for stock #${r.stock || '—'}…`);
   try {
     state.inventory = await lookupInventory({ stock: r.stock, vin: r.vin, model: r.model });
+    if (state.inventory.vehicle) state.inventory.vehicle = withStore(state.inventory.vehicle);
     if (state.inventory.vehicle?.price) state.asking = state.inventory.vehicle.price;
     setStatus(state.inventory.found ? 'Found on the website.' : 'Not found on the website (stock and model search).', state.inventory.found ? 'ok' : 'error');
   } catch (err) {
@@ -487,7 +499,14 @@ async function runAlternatives() {
       state.inventory = { found: false, vehicle: null, source: null, ...(state.inventory || {}), modelResults: results, tried };
     }
     const manual = state.alternatives.filter((a) => a.manual);
-    const picked = pickAlternatives(results, {
+    // The group site lists every Ritchey store; only offer the ones you sell from.
+    const tagged = results.map(withStore);
+    const usable = tagged.filter((v) => v.store.status !== 'excluded');
+    const hidden = tagged.filter((v) => v.store.status === 'excluded');
+    const hiddenNote = hidden.length
+      ? ` (${hidden.length} at ${[...new Set(hidden.map((v) => v.store.where))].join('/')} hidden)`
+      : '';
+    const picked = pickAlternatives(usable, {
       excludeStock: r.stock,
       excludeVin: r.vin,
       targetPrice: state.asking || state.inventory?.vehicle?.price || null,
@@ -495,7 +514,12 @@ async function runAlternatives() {
       limit: state.settings.altLimit || 3,
     }).map((a) => ({ ...a, link: vehicleLink(a, inventorySearchAll), selected: true }));
     state.alternatives = [...manual, ...picked];
-    setStatus(state.alternatives.length ? `Found ${state.alternatives.length} alternatives.` : 'No alternatives found for that model — your call on this one.', state.alternatives.length ? 'ok' : 'error');
+    setStatus(
+      picked.length
+        ? `Found ${picked.length} alternative${picked.length === 1 ? '' : 's'}${hiddenNote}.`
+        : `No alternatives at your stores for that model${hiddenNote} — add one by hand, or your call.`,
+      picked.length ? 'ok' : 'error',
+    );
   } catch (err) {
     setStatus(`Alternatives search failed: ${err.message}`, 'error', () => busy('Retrying…', runAlternatives));
   }
@@ -770,6 +794,7 @@ function renderInventory() {
     .join('<br>');
   el.innerHTML = v
     ? `<p class="ok">✓ ${escapeHtml(v.title || 'Vehicle')} — Stock # ${escapeHtml(v.stock || '?')} — SALE PRICE <b>${money(v.price) || 'not readable'}</b></p>
+       ${v.store?.status === 'excluded' ? `<p class="warn">⚠️ Listed at the ${escapeHtml(v.store.where)} store, not yours.</p>` : ''}
        ${v.url ? `<p><a href="${escapeHtml(v.url)}" target="_blank">Open VDP</a></p>` : ''}
        <p class="hint">Checked: ${tried}</p>`
     : `<p class="hint warn">Vehicle of interest not found on the website${state.record?.crmStatus === 'sold' ? ' (expected — it sold)' : ''}.</p><p class="hint">Checked: ${tried || '—'}</p>`;
@@ -805,6 +830,15 @@ function vehicleRows(list, listKey) {
     .map((v, i) => {
       const at = `data-list="${listKey}" data-idx="${i}"`;
       const outside = v.inWindow === false ? '<span class="tag">outside price window</span>' : '';
+      const st = v.store || { status: 'unknown' };
+      const store =
+        st.status === 'allowed'
+          ? `<span class="tag">📍 ${escapeHtml(st.where)}</span>`
+          : st.status === 'excluded'
+            ? `<span class="tag call">⛔ ${escapeHtml(st.where)} store</span>`
+            : v.found === false || (v.manual && !v.found)
+              ? ''
+              : '<span class="tag" title="The listing didn\'t say which store">📍 location?</span>';
       return `<li class="veh">
         <input type="checkbox" ${at} data-f="selected" ${v.selected !== false ? 'checked' : ''}>
         <div class="veh-fields">
@@ -815,7 +849,7 @@ function vehicleRows(list, listKey) {
             <input ${at} data-f="price" value="${v.price ? money(v.price) : ''}" placeholder="Price">
           </div>
           <input ${at} data-f="link" value="${escapeHtml(v.link || '')}" placeholder="Link (website VDP)">
-          <span class="hint">${v.manual ? (v.found ? 'added · from website' : 'added by hand') : 'from website'} ${outside}
+          <span class="hint">${v.manual ? (v.found ? 'added · from website' : 'added by hand') : 'from website'} ${store} ${outside}
             ${v.link ? `· <a href="${escapeHtml(v.link)}" target="_blank">open ↗</a>` : ''}</span>
         </div>
         <button class="x" data-remove="${listKey}:${i}" title="Remove">✕</button>

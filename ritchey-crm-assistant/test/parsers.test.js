@@ -370,3 +370,15 @@ test('a search that gets forwarded to a homepage is reported, not read as "no ve
   assert.equal(searchDropped('https://www.ritcheyautos.com/searchused.aspx?model=200', 'https://www.ritcheyautos.com/searchused.aspx?model=200'), null);
   assert.equal(searchDropped('https://www.ritcheyautos.com/vdp/123', 'https://www.ritcheyautos.com/vdp/123'), null);
 });
+
+test('group site: only your stores are offered; unlabeled listings are "unknown"', async () => {
+  const { storeOf } = await import('../src/lib/inventory.js');
+  const A = ['Daytona'];
+  const X = ['Dublin', 'Melbourne'];
+  assert.deepEqual(storeOf({ listingText: 'Used 2014 Chrysler 200 Located at Ritchey Subaru of Daytona' }, A, X), { status: 'allowed', where: 'Daytona' });
+  assert.deepEqual(storeOf({ listingText: 'Used 2014 Chrysler 200 Ritchey Automotive Melbourne' }, A, X), { status: 'excluded', where: 'Melbourne' });
+  assert.equal(storeOf({ listingText: 'Used 2014 Chrysler 200' }, A, X).status, 'unknown');
+  // A group tagline that names every store doesn't decide it; a location field does.
+  assert.equal(storeOf({ listingText: 'Serving Daytona, Melbourne and Dublin' }, A, X).status, 'unknown');
+  assert.deepEqual(storeOf({ location: 'Dublin', listingText: 'Serving Daytona, Melbourne and Dublin' }, A, X), { status: 'excluded', where: 'Dublin' });
+});

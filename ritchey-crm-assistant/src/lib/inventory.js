@@ -99,6 +99,8 @@ export function parseVehicleCard(card, labels, baseUrl) {
     }
   }
 
+  const location = pick(data, ['location', 'dealer', 'dealername', 'dealership', 'store']) || '';
+
   return {
     title: t?.title || null,
     year: t?.year || null,
@@ -109,7 +111,25 @@ export function parseVehicleCard(card, labels, baseUrl) {
     price,
     miles,
     url,
+    location,
+    // Kept (trimmed) so the store can be worked out from the listing text.
+    listingText: text.slice(0, 1500),
   };
+}
+
+// Which Ritchey store a listing belongs to, as far as we can tell:
+// { status: 'allowed' | 'excluded' | 'unknown', where: 'Daytona' | 'Melbourne' | '' }
+export function storeOf(v, allowed = [], excluded = []) {
+  const find = (words, hay) => words.find((w) => w && new RegExp(`\\b${escapeRe(w)}\\b`, 'i').test(hay));
+  // The site's own location field wins; otherwise read the whole listing.
+  // A listing that names both kinds of store (e.g. a group tagline) is unknown.
+  for (const hay of [v.location || '', `${v.location || ''} ${v.listingText || ''}`]) {
+    const a = find(allowed, hay);
+    const x = find(excluded, hay);
+    if (x && !a) return { status: 'excluded', where: x };
+    if (a && !x) return { status: 'allowed', where: a };
+  }
+  return { status: 'unknown', where: '' };
 }
 
 // schema.org Car/Vehicle/Product blocks, which many dealer sites embed.

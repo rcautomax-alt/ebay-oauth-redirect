@@ -1,4 +1,4 @@
-# Ritchey CRM Assistant (v0.5.1)
+# Ritchey CRM Assistant (v0.5.2)
 
 A Chrome extension that sits in a side panel next to VinSolutions. It reads the customer you have open, checks the vehicle of interest against the website (ritcheyautos.com), and drafts the **"\*10 Day: MGR | Send Out Price"** text and email for you to review.
 
@@ -49,7 +49,7 @@ A Chrome extension that sits in a side panel next to VinSolutions. It reads the 
 2. Click **Copy request for Claude**, then paste it into Claude (**Open Claude ↗**). The request includes the customer's first name, vehicle, stock #, your pricing (if you tick the box), and recent notes with phone numbers and emails stripped out. Their full name, phone and email are never included.
 3. Paste Claude's reply into the box and click **Use these drafts**. They land in the same Text/Email boxes, so the copy buttons and **Save to today's queue** work the same way. Freestyle entries show ✍️ in the queue.
 
-**Sold or not-real-inventory VOI:** no price quote. The panel always runs the model search, even when the sold unit still shows on the website, and falls back to a keyword search. The inventory box shows how many vehicles each search returned. Every alternative is editable, and each one's **link** goes into the email, or into the text when you offer just one. **Add vehicle** takes a stock #, VIN or website link. A fresh trade that isn't on the website yet comes up as a blank row to fill in by hand. Otherwise: It searches the same model on the website, pre-checks up to 3 units closest in price (±$5,000 window), and drafts a "that one sold, here are a few similar options" text and email. Uncheck any you don't want offered.
+**Sold or not-real-inventory VOI:** no price quote. The panel always runs the model search, even when the sold unit still shows on the website, and falls back to a keyword search. The inventory box shows how many vehicles each search returned. Every alternative is editable, and each one's **link** goes into the email, or into the text when you offer just one. **Only your stores are offered.** ritcheyautos.com lists every Ritchey store, so listings that mention Dublin or Melbourne are hidden (the status line says how many), Daytona listings (yours and Subaru of Daytona) are tagged 📍 Daytona, and listings that don't say where they are get tagged "location?". Both store lists are editable in Settings. **Add vehicle** takes a stock #, VIN or website link. A fresh trade that isn't on the website yet comes up as a blank row to fill in by hand. Otherwise: It searches the same model on the website, pre-checks up to 3 units closest in price (±$5,000 window), and drafts a "that one sold, here are a few similar options" text and email. Uncheck any you don't want offered.
 
 **Spanish:** switch Language to Spanish before generating drafts.
 
