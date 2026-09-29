@@ -483,7 +483,7 @@ async function workCustomer(c) {
   if (clicked) {
     await readCustomer({ expectName: c.customer });
   } else {
-    await navigator.clipboard.writeText(c.customer).catch(() => {});
+    await copyText(c.customer).catch(() => {});
     setStatus(`Couldn't open ${c.customer} automatically — name copied. Open them in VinSolutions, then Read Customer.`, 'error');
   }
 }
@@ -639,18 +639,45 @@ function freestylePrompt() {
   });
 }
 
-async function copyFreestyle() {
+// Copies the request and (openClaude) opens Claude with it already typed in.
+// The copy is the backup if Claude opens with an empty box.
+async function copyFreestyle(e, { openClaude = false } = {}) {
+  const btn = e?.currentTarget;
   if (!$('#fs-instruction').value.trim()) {
+    flashButton(btn, false, 'Type what to say first');
     setStatus('Type what you want to say first.', 'error');
+    $('#fs-instruction').focus();
     return;
   }
   const prompt = freestylePrompt();
   $('#fs-prompt').textContent = prompt;
+  $('#fs-preview').open = true;
+  let copied = true;
   try {
-    await navigator.clipboard.writeText(prompt);
-    setStatus('Request copied. Paste it into Claude, then paste the reply back here.', 'ok');
+    await copyText(prompt);
   } catch (err) {
-    setStatus(`Copy failed (${err.message}) — copy it from the preview instead.`, 'error');
+    copied = false;
+    console.warn('copy failed', err);
+  }
+  if (openClaude) {
+    chrome.tabs.create({ url: `https://claude.ai/new?q=${encodeURIComponent(prompt)}` });
+  }
+  if (copied) {
+    flashButton(btn, true, openClaude ? '✓ Copied — opening Claude' : '✓ Copied!');
+    setStatus(
+      openClaude
+        ? 'Claude opened with your request typed in — hit send. (If the box is empty, paste: it is on your clipboard.)'
+        : 'Request copied. Paste it into Claude, then paste the reply back here.',
+      'ok',
+    );
+  } else {
+    flashButton(btn, false, '✗ Copy blocked');
+    setStatus(
+      openClaude
+        ? 'Claude opened with your request typed in — hit send. (Copy was blocked, so if the box is empty, select the preview below and copy it.)'
+        : 'Copy was blocked — select the request in the preview below and copy it (Ctrl+A, Ctrl+C).',
+      openClaude ? 'ok' : 'error',
+    );
   }
 }
 
@@ -954,13 +981,60 @@ function renderSettings() {
 
 // ------------------------------------------------------------- events ---
 
+// Clipboard. The modern API can be refused in a side panel (e.g. "Document is
+// not focused" when you last clicked in VinSolutions), so fall back to the
+// older copy command, which the clipboardWrite permission allows.
+function execCopy(fill) {
+  const holder = document.createElement('div');
+  holder.contentEditable = 'true';
+  holder.style.cssText = 'position:fixed;left:-9999px;top:0;white-space:pre-wrap;';
+  fill(holder);
+  document.body.appendChild(holder);
+  const range = document.createRange();
+  range.selectNodeContents(holder);
+  const sel = window.getSelection();
+  sel.removeAllRanges();
+  sel.addRange(range);
+  const ok = document.execCommand('copy');
+  sel.removeAllRanges();
+  holder.remove();
+  if (!ok) throw new Error('the browser blocked copying');
+}
+
+async function copyText(text) {
+  try {
+    await navigator.clipboard.writeText(text);
+  } catch {
+    execCopy((el) => (el.textContent = text));
+  }
+}
+
 async function copyRich(html, text) {
-  await navigator.clipboard.write([
-    new ClipboardItem({
-      'text/html': new Blob([html], { type: 'text/html' }),
-      'text/plain': new Blob([text], { type: 'text/plain' }),
-    }),
-  ]);
+  try {
+    await navigator.clipboard.write([
+      new ClipboardItem({
+        'text/html': new Blob([html], { type: 'text/html' }),
+        'text/plain': new Blob([text], { type: 'text/plain' }),
+      }),
+    ]);
+  } catch {
+    execCopy((el) => (el.innerHTML = html));
+  }
+}
+
+// Show the result on the button itself — the status line can be off-screen.
+function flashButton(btn, ok, label) {
+  if (!btn) return;
+  const original = btn.dataset.label || btn.textContent;
+  btn.dataset.label = original;
+  btn.textContent = label;
+  btn.classList.toggle('flash-ok', ok);
+  btn.classList.toggle('flash-bad', !ok);
+  clearTimeout(btn._flash);
+  btn._flash = setTimeout(() => {
+    btn.textContent = original;
+    btn.classList.remove('flash-ok', 'flash-bad');
+  }, 2500);
 }
 
 function wire() {
@@ -971,7 +1045,8 @@ function wire() {
   $('#btn-alts').onclick = () => busy('Searching…', runAlternatives);
   $('#btn-draft').onclick = generateDrafts;
   $('#btn-save').onclick = saveToQueue;
-  $('#btn-fs-copy').onclick = copyFreestyle;
+  $('#btn-fs-copy').onclick = (e) => copyFreestyle(e);
+  $('#btn-fs-open').onclick = (e) => copyFreestyle(e, { openClaude: true });
   $('#btn-fs-use').onclick = useFreestyleReply;
   $('#fs-starters').innerHTML = STARTERS.map((s, i) => `<button data-starter="${i}">${escapeHtml(s.label)}</button>`).join('');
   $('#fs-starters').onclick = (e) => {
@@ -1085,11 +1160,14 @@ function wire() {
     const kind = e.target.dataset?.copy;
     if (!kind) return;
     try {
-      if (kind === 'sms') await navigator.clipboard.writeText($('#sms-out').value);
+      if (kind === 'sms') await copyText($('#sms-out').value);
       if (kind === 'email-rich') await copyRich($('#email-out').innerHTML, $('#email-out').innerText);
-      if (kind === 'email-plain') await navigator.clipboard.writeText($('#email-out').innerText);
+      if (kind === 'email-plain') await copyText($('#email-out').innerText);
+      if (kind === 'email-subject') await copyText($('#email-subject').value);
+      flashButton(e.target, true, '✓ Copied!');
       setStatus('Copied.', 'ok');
     } catch (err) {
+      flashButton(e.target, false, '✗ Copy failed');
       setStatus(`Copy failed: ${err.message}`, 'error');
     }
   });

@@ -1,6 +1,6 @@
 {
   "name": "ritchey-crm-assistant",
-  "version": "0.6.0",
+  "version": "0.6.1",
   "private": true,
   "type": "module",
   "description": "Chrome extension that drafts VinSolutions follow-up price quotes for review.",

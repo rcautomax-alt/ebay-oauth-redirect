@@ -36,6 +36,8 @@ body {
   color: var(--fg);
 }
 h1 { font-size: 15px; margin: 0 0 8px; }
+/* Keep the buttons and status line in view while scrolling the panel. */
+header { position: sticky; top: 0; z-index: 5; background: var(--bg); padding: 10px 0 8px; margin-top: -10px; border-bottom: 1px solid var(--line); }
 h2 { font-size: 13px; margin: 0 0 8px; text-transform: uppercase; letter-spacing: .04em; color: var(--muted); }
 h3 { font-size: 13px; margin: 10px 0 4px; }
 section, details { border-top: 1px solid var(--line); padding: 10px 0; }
@@ -100,3 +102,6 @@ button.x { padding: 2px 6px; }
 .row > input { flex: 1; width: auto; }
 .warn { color: var(--confirm); }
 .tag.overdue { color: var(--block); border-color: var(--block); font-weight: 600; }
+button.flash-ok { background: var(--ok); border-color: var(--ok); color: #fff; }
+button.flash-bad { background: var(--block); border-color: var(--block); color: #fff; }
+#fs-prompt { user-select: all; }
