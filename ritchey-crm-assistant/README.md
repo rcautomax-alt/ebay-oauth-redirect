@@ -1,6 +1,6 @@
-# Ritchey CRM Assistant (v0.5)
+# Ritchey CRM Assistant (v0.5.1)
 
-A Chrome extension that sits in a side panel next to VinSolutions. It reads the customer you have open, checks the vehicle of interest against ritcheybuickgmc.com, and drafts the **"\*10 Day: MGR | Send Out Price"** text and email for you to review.
+A Chrome extension that sits in a side panel next to VinSolutions. It reads the customer you have open, checks the vehicle of interest against the website (ritcheyautos.com), and drafts the **"\*10 Day: MGR | Send Out Price"** text and email for you to review.
 
 **It never sends anything.** Drafts get copied and pasted by you.
 

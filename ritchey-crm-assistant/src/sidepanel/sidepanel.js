@@ -5,7 +5,7 @@ import { parseCustomer, parseTaskList, tasksFromDom, pickTask, detectSessionProb
 import { parseVehicleTitle, normalizeStock, isPlausibleVin } from '../lib/vehicle.js';
 import { probeFrame, probeTaskList, clickTaskCustomer, captureFrame, extractVehicleCards } from '../lib/probes.js';
 import {
-  stockSearchUrl, modelSearchUrl, stockOrVinUrl, keywordSearchUrl, vehicleLink, vehiclesFromExtraction, findVehicle, pickAlternatives,
+  stockSearchUrl, modelSearchUrl, stockOrVinUrl, searchDropped, keywordSearchUrl, vehicleLink, vehiclesFromExtraction, findVehicle, pickAlternatives,
 } from '../lib/inventory.js';
 import { evaluate, canDraft, unacknowledged } from '../lib/rules.js';
 import { buildDrafts } from '../lib/templates.js';
@@ -45,7 +45,12 @@ const state = {
 const storage = {
   async loadSettings() {
     const { settings } = await chrome.storage.sync.get('settings');
-    return { ...DEFAULT_SETTINGS, ...(settings || {}) };
+    const merged = { ...DEFAULT_SETTINGS, ...(settings || {}) };
+    // Saved settings from before the site moved still point at the old domain.
+    for (const k of ['inventoryBase', 'inventorySearchAll']) {
+      if (/ritcheybuickgmc\.com/i.test(merged[k] || '')) merged[k] = DEFAULT_SETTINGS[k];
+    }
+    return merged;
   },
   saveSettings: (s) => chrome.storage.sync.set({ settings: s }),
   async loadQueue() {
@@ -143,12 +148,19 @@ async function readVinSolutions({ needRight, expectName = null }) {
 
 // ------------------------------------------------------------ inventory ---
 
+// The site moved once already (ritcheybuickgmc.com -> ritcheyautos.com, search
+// dropped). If a search lands somewhere without its query, say so plainly
+// instead of reading the homepage as "no vehicles".
+class RedirectError extends Error {}
+
 async function extractViaFetch(url) {
   const res = await fetch(url, { credentials: 'omit' });
   if (!res.ok) throw new Error(`HTTP ${res.status}`);
+  const dropped = searchDropped(url, res.url);
+  if (dropped) throw new RedirectError(dropped);
   const html = await res.text();
   const doc = new DOMParser().parseFromString(html, 'text/html');
-  return vehiclesFromExtraction(extractVehicleCards(doc), state.settings.priceLabels, url);
+  return vehiclesFromExtraction(extractVehicleCards(doc), state.settings.priceLabels, res.url || url);
 }
 
 // Some dealer sites build the results with JavaScript, so a plain fetch sees
@@ -169,6 +181,9 @@ async function extractViaTab(url) {
         resolve();
       }, 10000);
     });
+    const landed = (await chrome.tabs.get(tab.id)).url;
+    const dropped = searchDropped(url, landed);
+    if (dropped) throw new RedirectError(dropped);
     for (let i = 0; i < 4; i++) {
       await sleep(1200);
       const [r] = await chrome.scripting.executeScript({ target: { tabId: tab.id }, func: extractVehicleCards });
@@ -192,9 +207,21 @@ async function loadResults(url, tried) {
     vehicles = await withRetry(() => extractViaFetch(url), { tries: 2 });
     if (vehicles.length) siteFetchWorks = true;
   } catch (err) {
+    if (err instanceof RedirectError) {
+      tried.push({ url, count: 0, note: err.message });
+      return [];
+    }
     console.warn('fetch failed, trying tab', err);
   }
-  if (!vehicles.length && !siteFetchWorks) vehicles = await extractViaTab(url);
+  if (!vehicles.length && !siteFetchWorks) {
+    try {
+      vehicles = await extractViaTab(url);
+    } catch (err) {
+      // Log it and move on to the next search instead of stopping everything.
+      tried.push({ url, count: 0, note: err instanceof RedirectError ? err.message : `couldn't open page (${err.message})` });
+      return [];
+    }
+  }
   // Logged with a count so "the site returned nothing" is visible in the panel.
   tried.push({ url, count: vehicles.length });
   return vehicles;
@@ -424,7 +451,7 @@ async function workCustomer(c) {
 
 async function runLookup() {
   const r = state.record;
-  setStatus(`Checking ritcheybuickgmc.com for stock #${r.stock || '—'}…`);
+  setStatus(`Checking the website for stock #${r.stock || '—'}…`);
   try {
     state.inventory = await lookupInventory({ stock: r.stock, vin: r.vin, model: r.model });
     if (state.inventory.vehicle?.price) state.asking = state.inventory.vehicle.price;
@@ -640,7 +667,8 @@ async function capturePage() {
         .map((r) => ({
           frameId: r.frameId,
           name: r.result.name,
-          url: scrubPii(r.result.url.replace(/\?.*$/, '?[QUERY]'), names),
+          // VinSolutions URLs carry customer IDs; website search URLs are fine to keep.
+          url: /vinsolutions|coxautoinc|vinmanager/i.test(r.result.url) ? scrubPii(r.result.url.replace(/\?.*$/, '?[QUERY]'), names) : r.result.url,
           title: r.result.title,
           isTop: r.result.isTop,
           text: scrubPii(r.result.text, names),
@@ -738,7 +766,7 @@ function renderInventory() {
   const v = inv.vehicle;
   const tried = (inv.tried || [])
     .map((t) => (typeof t === 'string' ? { url: t, count: null } : t))
-    .map((t) => `<a href="${escapeHtml(t.url)}" target="_blank">${escapeHtml(t.url.replace(/^https?:\/\/[^/]+/, ''))}</a>${t.count === null ? '' : ` — ${t.count} vehicle${t.count === 1 ? '' : 's'}`}`)
+    .map((t) => `<a href="${escapeHtml(t.url)}" target="_blank">${escapeHtml(t.url.replace(/^https?:\/\/[^/]+/, ''))}</a>${t.note ? ` — <span class="warn">⚠️ ${escapeHtml(t.note)}</span>` : t.count === null ? '' : ` — ${t.count} vehicle${t.count === 1 ? '' : 's'}`}`)
     .join('<br>');
   el.innerHTML = v
     ? `<p class="ok">✓ ${escapeHtml(v.title || 'Vehicle')} — Stock # ${escapeHtml(v.stock || '?')} — SALE PRICE <b>${money(v.price) || 'not readable'}</b></p>

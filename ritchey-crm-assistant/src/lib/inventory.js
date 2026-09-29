@@ -10,6 +10,21 @@ export function stockOrVinUrl(searchAllBase, value) {
   return `${searchAllBase}?stockOrVIN=${v}&q=${v}`;
 }
 
+// A search that lands on a page without its query (e.g. the old domain
+// forwarding to the new homepage) returns a message; otherwise null.
+export function searchDropped(askedUrl, landedUrl) {
+  try {
+    const asked = new URL(askedUrl);
+    const landed = new URL(landedUrl || askedUrl);
+    if (asked.search && !landed.search && (asked.host !== landed.host || asked.pathname !== landed.pathname)) {
+      return `redirected to ${landed.origin}${landed.pathname} — search address needs updating in Settings`;
+    }
+  } catch {
+    /* not a URL we can judge */
+  }
+  return null;
+}
+
 export function modelSearchUrl(base, model) {
   return `${base}?model=${encodeURIComponent(String(model).trim())}`;
 }

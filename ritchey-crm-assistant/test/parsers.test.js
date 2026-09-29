@@ -363,3 +363,10 @@ test('alternatives keep units whose price could not be read; miles are parsed', 
   const v = parseVehicleCard({ text: '2014 Chrysler 200 Limited Stock #: NEW2 Mileage: 61,234 SALE PRICE $11,995', data: {} }, LABELS, '');
   assert.equal(v.miles, 61234);
 });
+
+test('a search that gets forwarded to a homepage is reported, not read as "no vehicles"', async () => {
+  const { searchDropped } = await import('../src/lib/inventory.js');
+  assert.match(searchDropped('https://www.ritcheybuickgmc.com/searchused.aspx?model=200', 'https://www.ritcheyautos.com/'), /redirected to https:\/\/www.ritcheyautos.com\//);
+  assert.equal(searchDropped('https://www.ritcheyautos.com/searchused.aspx?model=200', 'https://www.ritcheyautos.com/searchused.aspx?model=200'), null);
+  assert.equal(searchDropped('https://www.ritcheyautos.com/vdp/123', 'https://www.ritcheyautos.com/vdp/123'), null);
+});

@@ -22,9 +22,11 @@ export const DEFAULT_SETTINGS = {
     { label: 'Tag agency fee', amount: 33 },
   ],
 
-  inventoryBase: 'https://www.ritcheybuickgmc.com/searchused.aspx',
-  // Exact search VinSolutions' own "View VDP" button uses.
-  inventorySearchAll: 'https://www.ritcheybuickgmc.com/searchall.aspx',
+  // ritcheybuickgmc.com now forwards to ritcheyautos.com (and drops the
+  // search), so searches go straight to ritcheyautos.com. Editable in Settings.
+  inventoryBase: 'https://www.ritcheyautos.com/searchused.aspx',
+  // Exact stock/VIN search (the kind VinSolutions' "View VDP" button uses).
+  inventorySearchAll: 'https://www.ritcheyautos.com/searchall.aspx',
   // Price labels on the inventory site, in priority order.
   priceLabels: ['SALE PRICE', 'Ritchey Price', 'Internet Price', 'Our Price'],
 

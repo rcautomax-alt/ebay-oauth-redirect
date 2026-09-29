@@ -91,7 +91,7 @@ export function evaluate(record, ctx) {
   }
   if (inventory) {
     if (inventory.found && crm === 'sold') {
-      add('warn', 'CRM_VS_SITE', 'CRM says sold, but ritcheybuickgmc.com still lists it (site can lag a day). Check before offering it.');
+      add('warn', 'CRM_VS_SITE', 'CRM says sold, but the website still lists it (site can lag a day). Check before offering it.');
     }
     if (!inventory.found && mode === 'quote') {
       add('confirm', 'NOT_ON_SITE', 'CRM shows active, but not found on the website by stock # OR model search. Enter the asking price manually or treat as sold.');
