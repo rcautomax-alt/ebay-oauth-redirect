@@ -98,13 +98,28 @@ export function probeTaskList() {
   return out;
 }
 
+// Which My Tasks tab is selected (All / Follow Ups / Overdue …) and what each
+// section header says it holds, e.g. { "Overdue Tasks": 7 }.
+export function probeTaskView() {
+  const textOf = (el) => (el ? (el.innerText || el.textContent || '').replace(/\s+/g, ' ').trim() : '');
+  const tab = document.querySelector('[role="tab"][aria-selected="true"][data-testid*="task-header-view-tabs"]');
+  if (!tab && !document.querySelector('[data-testid^="task-page"]')) return null;
+  const sections = {};
+  for (const h of document.querySelectorAll('h3, [data-testid$="-title"]')) {
+    const m = textOf(h).match(/^(.+?)\s*\((\d+)\)$/);
+    if (m) sections[m[1]] = Number(m[2]);
+  }
+  return { activeTab: textOf(tab), sections };
+}
+
 // Click a customer's name in the My Tasks list so VinSolutions opens their
 // dashboard. Navigation only — never touches Edit / Dismiss / send.
 export function clickTaskCustomer(rowKey, customer) {
   const norm = (s) => String(s || '').replace(/\s+/g, ' ').trim().toLowerCase();
   const cells = Array.from(document.querySelectorAll('[data-testid^="customer-name-"]'));
   const hit =
-    (rowKey && cells.find((c) => c.closest('tr') && c.closest('tr').getAttribute('data-row-key') === rowKey)) ||
+    // Row ID and name must both match; fall back to the name alone.
+    cells.find((c) => rowKey && c.closest('tr') && c.closest('tr').getAttribute('data-row-key') === rowKey && norm((c.querySelector('a') || c).textContent) === norm(customer)) ||
     cells.find((c) => norm((c.querySelector('a') || c).textContent) === norm(customer));
   const link = hit && hit.querySelector('a');
   if (!link) return false;

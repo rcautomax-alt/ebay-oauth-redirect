@@ -99,3 +99,4 @@ a { color: var(--info); }
 button.x { padding: 2px 6px; }
 .row > input { flex: 1; width: auto; }
 .warn { color: var(--confirm); }
+.tag.overdue { color: var(--block); border-color: var(--block); font-weight: 600; }

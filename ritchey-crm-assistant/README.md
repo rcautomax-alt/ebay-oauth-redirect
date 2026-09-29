@@ -1,4 +1,4 @@
-# Ritchey CRM Assistant (v0.5.2)
+# Ritchey CRM Assistant (v0.6)
 
 A Chrome extension that sits in a side panel next to VinSolutions. It reads the customer you have open, checks the vehicle of interest against the website (ritcheyautos.com), and drafts the **"\*10 Day: MGR | Send Out Price"** text and email for you to review.
 
@@ -23,11 +23,12 @@ A Chrome extension that sits in a side panel next to VinSolutions. It reads the 
 
 ## Daily flow
 
-1. **Read Task List** while My Tasks is showing. The panel lists **customers who need a Send Out Price** (uncheck the filter to see everyone). Each task's type comes from VinSolutions' own icon: 📞 call (yours), ✉️ email, 💬 text, ⚙️ internal. Also shown:
-   - 💲 marks the "*10 Day: MGR | Send Out Price" tasks, and whether VinSolutions wants them by email, text, or both.
-   - 🔥 **shared** means another customer on the list has the same stock #.
-   - **sold?** means the vehicle is struck through in the list.
-   - **✓ drafted** means the customer is already saved in today's queue.
+1. **Read Task List** with My Tasks on the **All** tab (the panel warns you if it isn't). There's no date filter: whatever My Tasks shows gets read, including **Overdue Tasks** left from days off or tasks that fired after you left.
+   - **⏰ Overdue** customers sort to the top. Then come Send Out Price customers, then everything else.
+   - **Show:** *All email & text tasks* (default), *Send Out Price only*, or *Everything* (calls and internal tasks too).
+   - Task types come from VinSolutions' own icons: 📞 call (yours), ✉️ email, 💬 text, ⚙️ internal. 💲 marks "*10 Day: MGR | Send Out Price" tasks, and shows whether VinSolutions wants them by email, text, or both.
+   - 🔥 **shared** means another customer on the list has the same stock #. **sold?** means the vehicle is struck through. **✓ drafted** means the customer is already in today's queue.
+   - **Count check:** if a section header says more customers than the panel could read (e.g. "Overdue Tasks (7)" but 6 read), the status line warns you.
 2. **Click a customer's name.** The panel clicks them open in VinSolutions, waits for their dashboard, and reads it. (**Read Customer** still works for anyone you open yourself.) The panel fills in:
    - Customer, task type, Lead Manager, task Assigned To, vehicle, stock #, VIN, CRM status, and notes count. If the dashboard has no Vehicle Info section, the vehicle and stock # come from the task you clicked. **Every field is editable.** If the reader gets something wrong, fix it and the flags update.
    - **Flags:**

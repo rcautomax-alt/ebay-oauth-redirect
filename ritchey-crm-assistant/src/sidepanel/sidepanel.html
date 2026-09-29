@@ -19,7 +19,13 @@
   <details id="tasks-section" hidden open>
     <summary>Today's tasks <span id="tasks-count"></span></summary>
     <p class="hint">Click a name: it opens them in VinSolutions and reads them automatically. 📞 calls stay yours · ⚙️ internal · 💲 Send Out Price.</p>
-    <label class="check"><input type="checkbox" id="pq-only" checked> Send Out Price customers only</label>
+    <label>Show
+      <select id="task-filter">
+        <option value="contact">All email &amp; text tasks</option>
+        <option value="pq">Send Out Price only</option>
+        <option value="all">Everything (calls &amp; internal too)</option>
+      </select>
+    </label>
     <ul id="tasks-list" class="tasks"></ul>
   </details>
 

@@ -58,6 +58,7 @@ export const VIN_MAP = {
     dateLike: /\b\d{1,2}\/\d{1,2}\/\d{2,4}\b|\b\d{1,2}:\d{2}\s*[ap]m\b/i,
     priceQuote: /send out price|manager special price quote/i,
     callSection: /call tracking/i,
+    overdueSection: /overdue/i,
   },
 
   // Task icon titles in My Tasks -> our task types.

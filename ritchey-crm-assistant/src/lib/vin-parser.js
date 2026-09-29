@@ -217,6 +217,7 @@ export function tasksFromDom(rows, map = VIN_MAP) {
         rowKey: row.rowKey || '',
         taskId: t.taskId || '',
         section: row.section || '',
+        overdue: tl.overdueSection.test(row.section || ''),
         status: row.status || '',
         vehicleStruck: !!row.vehicleStruck,
         description: t.note,

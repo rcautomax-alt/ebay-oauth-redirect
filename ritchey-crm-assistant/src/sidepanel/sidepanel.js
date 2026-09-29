@@ -3,7 +3,7 @@ import { money, parseMoney, escapeHtml, todayKey, firstNameOf, nameKey } from '.
 import { computePricing } from '../lib/pricing.js';
 import { parseCustomer, parseTaskList, tasksFromDom, pickTask, detectSessionProblem, splitPanes } from '../lib/vin-parser.js';
 import { parseVehicleTitle, normalizeStock, isPlausibleVin } from '../lib/vehicle.js';
-import { probeFrame, probeTaskList, clickTaskCustomer, captureFrame, extractVehicleCards } from '../lib/probes.js';
+import { probeFrame, probeTaskList, probeTaskView, clickTaskCustomer, captureFrame, extractVehicleCards } from '../lib/probes.js';
 import {
   stockSearchUrl, modelSearchUrl, stockOrVinUrl, searchDropped, storeOf, keywordSearchUrl, vehicleLink, vehiclesFromExtraction, findVehicle, pickAlternatives,
 } from '../lib/inventory.js';
@@ -21,7 +21,7 @@ const $ = (sel) => document.querySelector(sel);
 const state = {
   settings: { ...DEFAULT_SETTINGS },
   tasks: [],
-  pqOnly: true, // task list filter: only customers with a Send Out Price task
+  taskFilter: 'contact', // task list: 'pq' (Send Out Price) | 'contact' (any email/text) | 'all'
   expectedCustomer: null,
   pickedTask: null, // the task you clicked in the list
   record: null, // flat, editable copy of the parsed customer
@@ -323,11 +323,19 @@ async function readTasks() {
       const rows = results.flatMap((r) => r.result || []);
       state.tasks = rows.length ? tasksFromDom(rows) : parseTaskList(frames);
       state.pickedTask = null;
+      const views = await chrome.scripting.executeScript({ target: { tabId: tab.id, allFrames: true }, func: probeTaskView });
+      const view = views.map((r) => r.result).find(Boolean);
       renderTasks();
       const n = (type) => state.tasks.filter((t) => t.type === type).length;
       if (state.tasks.length) {
-        const pq = groupCustomers(state.tasks).filter((c) => c.pqTasks.length).length;
-        setStatus(`${pq} customers need a Send Out Price. (${state.tasks.length} tasks: ${n('email') + n('text')} email/text, ${n('call')} calls for you, ${n('other')} internal.)`, 'ok');
+        const groups = groupCustomers(state.tasks);
+        const pq = groups.filter((c) => c.pqTasks.length).length;
+        const od = groups.filter((c) => c.overdue).length;
+        const warnings = taskListWarnings(view, groups);
+        setStatus(
+          `${od ? `⏰ ${od} overdue customer${od === 1 ? '' : 's'}. ` : ''}${pq} need a Send Out Price. (${state.tasks.length} tasks: ${n('email') + n('text')} email/text, ${n('call')} calls for you, ${n('other')} internal.)${warnings.length ? ` ⚠️ ${warnings.join(' ')}` : ''}`,
+          warnings.length ? 'error' : 'ok',
+        );
       } else {
         setStatus("Couldn't find tasks on this screen. Open My Tasks, or use Capture Page and send it over so the reader can be tuned.", 'error');
       }
@@ -411,15 +419,35 @@ async function readCustomer({ expectName = null } = {}) {
   });
 }
 
+// Things that mean the panel may not be seeing every task on My Tasks.
+function taskListWarnings(view, groups) {
+  const out = [];
+  if (!view) return out;
+  if (view.activeTab && !/^all$/i.test(view.activeTab)) {
+    out.push(`My Tasks is on the "${view.activeTab}" tab — switch to All to include every section (overdue included).`);
+  }
+  // Compare each section's header count with the customers actually read.
+  for (const [name, count] of Object.entries(view.sections || {})) {
+    if (!count || /my tasks|lead bucket|new leads|vinessa/i.test(name)) continue;
+    const read = new Set(state.tasks.filter((t) => t.section === name).map((t) => `${t.rowKey}|${nameKey(t.customer)}`)).size;
+    if (read < count) out.push(`VinSolutions shows ${name} (${count}) but the panel read ${read} — scroll that section into view and Read Task List again.`);
+  }
+  return out;
+}
+
 // One entry per customer, with all of their tasks.
 function groupCustomers(tasks) {
   const map = new Map();
   for (const t of tasks) {
-    const key = t.rowKey || nameKey(t.customer);
+    // ID + name: never merge two different people even if an ID repeats.
+    const key = `${t.rowKey}|${nameKey(t.customer)}`;
     if (!map.has(key)) {
-      map.set(key, { key, customer: t.customer, vehicle: t.vehicle, stock: t.stock, rowKey: t.rowKey, section: t.section, vehicleStruck: t.vehicleStruck, sharedWith: t.sharedWith || [], tasks: [] });
+      map.set(key, { key, customer: t.customer, vehicle: t.vehicle, stock: t.stock, rowKey: t.rowKey, sections: [], overdue: false, vehicleStruck: t.vehicleStruck, sharedWith: t.sharedWith || [], tasks: [] });
     }
-    map.get(key).tasks.push(t);
+    const g = map.get(key);
+    g.tasks.push(t);
+    if (t.section && !g.sections.includes(t.section)) g.sections.push(t.section);
+    if (t.overdue) g.overdue = true;
   }
   return [...map.values()].map((c) => {
     const pqTasks = c.tasks.filter((t) => t.isPriceQuote && (t.type === 'email' || t.type === 'text'));
@@ -724,10 +752,14 @@ function renderTasks() {
   const all = groupCustomers(state.tasks);
   const pqCount = all.filter((c) => c.pqTasks.length).length;
   // Price-quote customers first, then anything else with an email/text task.
-  const rank = (c) => (c.pqTasks.length ? 0 : c.tasks.some((t) => t.type === 'email' || t.type === 'text') ? 1 : 2);
-  const shown = all.filter((c) => !state.pqOnly || c.pqTasks.length).sort((a, b) => rank(a) - rank(b));
-  $('#tasks-count').textContent = `(${pqCount} Send Out Price of ${all.length} customers)`;
-  $('#pq-only').checked = state.pqOnly;
+  const hasContact = (c) => c.tasks.some((t) => t.type === 'email' || t.type === 'text');
+  const rank = (c) => (c.pqTasks.length ? 0 : hasContact(c) ? 1 : 2);
+  const keep = { pq: (c) => c.pqTasks.length > 0, contact: hasContact, all: () => true }[state.taskFilter] || hasContact;
+  // Overdue first (clean-up), then Send Out Price, then other email/text.
+  const shown = all.filter(keep).sort((a, b) => Number(b.overdue) - Number(a.overdue) || rank(a) - rank(b));
+  const odCount = all.filter((c) => c.overdue).length;
+  $('#tasks-count').textContent = `(${odCount ? `⏰ ${odCount} overdue · ` : ''}${pqCount} Send Out Price · ${all.length} customers)`;
+  $('#task-filter').value = state.taskFilter;
   const icon = { call: '📞', email: '✉️', text: '💬', other: '⚙️', unknown: '?' };
   const picked = state.pickedTask && nameKey(state.pickedTask.customer);
   $('#tasks-list').innerHTML = shown.length
@@ -742,10 +774,11 @@ function renderTasks() {
           return `<li class="${rank(c) === 2 ? 'call' : ''} ${picked === nameKey(c.customer) ? 'picked' : ''}">
             <span class="task-main">
               <span class="name" data-cust="${i}">${escapeHtml(c.customer || '(no name)')}</span>
+              ${c.overdue ? '<span class="tag overdue">⏰ Overdue</span>' : ''}
               ${saved ? '<span class="tag ok">✓ drafted</span>' : ''}
               ${c.sharedWith.length ? `<span class="tag" title="Also VOI for ${escapeHtml(c.sharedWith.join(', '))}">🔥 shared: ${escapeHtml(c.sharedWith.join(', '))}</span>` : ''}
               ${c.vehicleStruck ? '<span class="tag call">sold?</span>' : ''}
-              <br><span class="hint">${escapeHtml(c.vehicle || 'no vehicle')} ${c.stock ? `[${escapeHtml(c.stock)}]` : '— no stock #'} · ${escapeHtml(c.section)}</span>
+              <br><span class="hint">${escapeHtml(c.vehicle || 'no vehicle')} ${c.stock ? `[${escapeHtml(c.stock)}]` : '— no stock #'} · ${escapeHtml(c.sections.join(' + '))}</span>
               <br>${taskIcons}
               ${c.pqTasks.length ? `<span class="hint">Send Out Price by ${c.channels.join(' + ')}</span>` : ''}
               ${other.length ? `<span class="hint">· other template: ${escapeHtml(other.map((t) => t.template || t.description).join('; '))}</span>` : ''}
@@ -753,7 +786,7 @@ function renderTasks() {
           </li>`;
         })
         .join('')
-    : '<li class="hint">No Send Out Price tasks. Uncheck the filter to see everything.</li>';
+    : '<li class="hint">Nothing matches this filter — try "Everything".</li>';
 }
 
 function renderCustomer() {
@@ -965,8 +998,8 @@ function wire() {
     }
     await workCustomer(c);
   };
-  $('#pq-only').onchange = (e) => {
-    state.pqOnly = e.target.checked;
+  $('#task-filter').onchange = (e) => {
+    state.taskFilter = e.target.value;
     renderTasks();
   };
 
