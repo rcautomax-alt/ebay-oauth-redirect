@@ -2,10 +2,10 @@ import { DEFAULT_SETTINGS, feeTotal } from '../config/defaults.js';
 import { money, parseMoney, escapeHtml, todayKey, firstNameOf, nameKey } from '../lib/format.js';
 import { computePricing } from '../lib/pricing.js';
 import { parseCustomer, parseTaskList, tasksFromDom, pickTask, detectSessionProblem, splitPanes } from '../lib/vin-parser.js';
-import { parseVehicleTitle, normalizeStock } from '../lib/vehicle.js';
+import { parseVehicleTitle, normalizeStock, isPlausibleVin } from '../lib/vehicle.js';
 import { probeFrame, probeTaskList, clickTaskCustomer, captureFrame, extractVehicleCards } from '../lib/probes.js';
 import {
-  stockSearchUrl, modelSearchUrl, stockOrVinUrl, vehiclesFromExtraction, findVehicle, pickAlternatives,
+  stockSearchUrl, modelSearchUrl, stockOrVinUrl, keywordSearchUrl, vehicleLink, vehiclesFromExtraction, findVehicle, pickAlternatives,
 } from '../lib/inventory.js';
 import { evaluate, canDraft, unacknowledged } from '../lib/rules.js';
 import { buildDrafts } from '../lib/templates.js';
@@ -33,6 +33,7 @@ const state = {
   acks: {},
   inventory: null, // { found, vehicle, source, modelResults, tried }
   alternatives: [],
+  fsVehicles: [], // vehicles to mention in a freestyle message
   asking: null,
   discount: null,
   pricing: null,
@@ -166,10 +167,10 @@ async function extractViaTab(url) {
       setTimeout(() => {
         chrome.tabs.onUpdated.removeListener(done);
         resolve();
-      }, 15000);
+      }, 10000);
     });
-    for (let i = 0; i < 5; i++) {
-      await sleep(1500);
+    for (let i = 0; i < 4; i++) {
+      await sleep(1200);
       const [r] = await chrome.scripting.executeScript({ target: { tabId: tab.id }, func: extractVehicleCards });
       const vehicles = vehiclesFromExtraction(r.result || {}, state.settings.priceLabels, url);
       if (vehicles.length) return vehicles;
@@ -180,16 +181,69 @@ async function extractViaTab(url) {
   }
 }
 
+// Once a plain download of the site has returned vehicles, we know the site
+// doesn't need JavaScript to list them — so an empty result really means
+// "not there" and the slow hidden-tab fallback can be skipped.
+let siteFetchWorks = false;
+
 async function loadResults(url, tried) {
-  tried.push(url);
   let vehicles = [];
   try {
     vehicles = await withRetry(() => extractViaFetch(url), { tries: 2 });
+    if (vehicles.length) siteFetchWorks = true;
   } catch (err) {
     console.warn('fetch failed, trying tab', err);
   }
-  if (!vehicles.length) vehicles = await extractViaTab(url);
+  if (!vehicles.length && !siteFetchWorks) vehicles = await extractViaTab(url);
+  // Logged with a count so "the site returned nothing" is visible in the panel.
+  tried.push({ url, count: vehicles.length });
   return vehicles;
+}
+
+const blankVehicle = () => ({ title: '', stock: '', vin: null, miles: null, price: null, link: '', url: '', selected: true, manual: true });
+
+// Add a vehicle by stock #, VIN or website link. A fresh trade usually isn't
+// on the website yet — then you get a blank row to fill in by hand.
+async function findVehicleByQuery(query) {
+  const q = query.trim();
+  const { inventoryBase, inventorySearchAll } = state.settings;
+  const tried = [];
+  if (/^https?:\/\//i.test(q)) {
+    let found = null;
+    try {
+      const vs = await loadResults(q, tried);
+      // A VDP page can also show "similar vehicles"; only trust an exact match.
+      found = vs.find((v) => v.url && v.url.split('?')[0] === q.split('?')[0]) || (vs.length === 1 ? vs[0] : null);
+    } catch (err) {
+      console.warn('link lookup failed', err);
+    }
+    return { ...blankVehicle(), ...(found || {}), link: q, found: !!found };
+  }
+  const isVin = isPlausibleVin(q);
+  const key = isVin ? { vin: q.toUpperCase() } : { stock: q };
+  let hit = findVehicle(await loadResults(stockOrVinUrl(inventorySearchAll, q), tried), key);
+  if (!hit && !isVin) hit = findVehicle(await loadResults(stockSearchUrl(inventoryBase, q), tried), key);
+  if (hit) return { ...blankVehicle(), ...hit, link: vehicleLink(hit, inventorySearchAll), found: true };
+  return { ...blankVehicle(), ...(isVin ? { vin: q.toUpperCase() } : { stock: q }), found: false };
+}
+
+async function addVehicle(listKey, inputSel) {
+  const q = $(inputSel).value.trim();
+  if (!q) {
+    state[listKey].push(blankVehicle());
+  } else {
+    setStatus(`Looking up ${q} on the website…`);
+    const v = await findVehicleByQuery(q);
+    state[listKey].push(v);
+    setStatus(
+      v.found
+        ? `Added ${v.title || q} from the website${v.price ? ` (${money(v.price)})` : ''}. Check the details.`
+        : `${q} isn't on the website yet (fresh trade?). Fill in the details by hand.`,
+      v.found ? 'ok' : 'error',
+    );
+  }
+  $(inputSel).value = '';
+  renderVehicleLists();
 }
 
 async function lookupInventory({ stock, vin, model }) {
@@ -292,6 +346,7 @@ async function readCustomer({ expectName = null } = {}) {
         acks: {},
         inventory: null,
         alternatives: [],
+  fsVehicles: [], // vehicles to mention in a freestyle message
         asking: null,
         discount: null,
         pricing: null,
@@ -304,6 +359,7 @@ async function readCustomer({ expectName = null } = {}) {
       $('#fs-instruction').value = '';
       $('#fs-reply').value = '';
       $('#fs-prompt').textContent = '';
+      state.fsVehicles = [];
       renderCustomer();
       const result = reevaluate();
       setStatus('Customer read. Review the fields — anything wrong, just fix it.', 'ok');
@@ -385,23 +441,33 @@ async function runLookup() {
 async function runAlternatives() {
   const r = state.record;
   if (!r.model) {
-    setStatus('Type a model to search for alternatives.', 'error');
+    setStatus('Type a model to search for alternatives (or add a vehicle by hand below).', 'error');
     return;
   }
   setStatus(`Searching the website for other ${r.model}s…`);
   try {
+    const { inventoryBase, inventorySearchAll } = state.settings;
+    const tried = [...(state.inventory?.tried || [])];
     let results = state.inventory?.modelResults;
-    if (!results) {
-      state.inventory = await lookupInventory({ stock: r.stock, vin: r.vin, model: r.model });
-      results = state.inventory.modelResults || [];
+    // Always run the model search here — even if the sold unit itself still
+    // shows on the website (it can lag a day), which skips it in the lookup.
+    if (!results || !results.length) {
+      results = await loadResults(modelSearchUrl(inventoryBase, r.model), tried);
+      if (!results.length && inventorySearchAll) {
+        const words = (r.vehicleTitle || r.model).replace(/^\d{4}\s+/, '').split(/\s+/).slice(0, 2).join(' ');
+        results = await loadResults(keywordSearchUrl(inventorySearchAll, words), tried);
+      }
+      state.inventory = { found: false, vehicle: null, source: null, ...(state.inventory || {}), modelResults: results, tried };
     }
-    state.alternatives = pickAlternatives(results, {
+    const manual = state.alternatives.filter((a) => a.manual);
+    const picked = pickAlternatives(results, {
       excludeStock: r.stock,
       excludeVin: r.vin,
       targetPrice: state.asking || state.inventory?.vehicle?.price || null,
       window: Number(state.settings.altPriceWindow) || 5000,
       limit: state.settings.altLimit || 3,
-    }).map((a) => ({ ...a, selected: true }));
+    }).map((a) => ({ ...a, link: vehicleLink(a, inventorySearchAll), selected: true }));
+    state.alternatives = [...manual, ...picked];
     setStatus(state.alternatives.length ? `Found ${state.alternatives.length} alternatives.` : 'No alternatives found for that model — your call on this one.', state.alternatives.length ? 'ok' : 'error');
   } catch (err) {
     setStatus(`Alternatives search failed: ${err.message}`, 'error', () => busy('Retrying…', runAlternatives));
@@ -461,7 +527,7 @@ function generateDrafts() {
       pricing = computePricing({ asking: state.asking, discount: state.discount, fees: state.settings.fees });
       state.pricing = pricing;
     }
-    const alts = state.alternatives.filter((a) => a.selected);
+    const alts = state.alternatives.filter((a) => a.selected).map((a) => ({ ...a, link: a.link ?? vehicleLink(a, state.settings.inventorySearchAll) }));
     state.drafts = buildDrafts({
       mode: result.mode,
       lang: state.lang,
@@ -490,6 +556,7 @@ function freestylePrompt() {
     channels: state.channels,
     pricing: $('#fs-pricing').checked ? state.pricing : null,
     notesExcerpt: state.notesExcerpt,
+    vehicles: state.fsVehicles.filter((v) => v.selected !== false),
   });
 }
 
@@ -669,12 +736,15 @@ function renderInventory() {
     return;
   }
   const v = inv.vehicle;
-  const tried = inv.tried.map((u) => `<a href="${escapeHtml(u)}" target="_blank">${escapeHtml(u.replace(/^https?:\/\/[^/]+/, ''))}</a>`).join('<br>');
+  const tried = (inv.tried || [])
+    .map((t) => (typeof t === 'string' ? { url: t, count: null } : t))
+    .map((t) => `<a href="${escapeHtml(t.url)}" target="_blank">${escapeHtml(t.url.replace(/^https?:\/\/[^/]+/, ''))}</a>${t.count === null ? '' : ` — ${t.count} vehicle${t.count === 1 ? '' : 's'}`}`)
+    .join('<br>');
   el.innerHTML = v
     ? `<p class="ok">✓ ${escapeHtml(v.title || 'Vehicle')} — Stock # ${escapeHtml(v.stock || '?')} — SALE PRICE <b>${money(v.price) || 'not readable'}</b></p>
        ${v.url ? `<p><a href="${escapeHtml(v.url)}" target="_blank">Open VDP</a></p>` : ''}
        <p class="hint">Checked: ${tried}</p>`
-    : `<p class="hint warn">Not found by stock # or model search.</p><p class="hint">Checked: ${tried || '—'}</p>`;
+    : `<p class="hint warn">Vehicle of interest not found on the website${state.record?.crmStatus === 'sold' ? ' (expected — it sold)' : ''}.</p><p class="hint">Checked: ${tried || '—'}</p>`;
 }
 
 function renderPricing() {
@@ -700,17 +770,40 @@ function updatePricingOut() {
   }
 }
 
+// Editable vehicle rows, shared by Alternatives and Freestyle.
+function vehicleRows(list, listKey) {
+  if (!list.length) return '<li class="hint">None yet.</li>';
+  return list
+    .map((v, i) => {
+      const at = `data-list="${listKey}" data-idx="${i}"`;
+      const outside = v.inWindow === false ? '<span class="tag">outside price window</span>' : '';
+      return `<li class="veh">
+        <input type="checkbox" ${at} data-f="selected" ${v.selected !== false ? 'checked' : ''}>
+        <div class="veh-fields">
+          <input ${at} data-f="title" value="${escapeHtml(v.title || '')}" placeholder="Year Make Model Trim">
+          <div class="veh-row">
+            <input ${at} data-f="stock" value="${escapeHtml(v.stock || '')}" placeholder="Stock #">
+            <input ${at} data-f="miles" value="${v.miles ? Number(v.miles).toLocaleString('en-US') : ''}" placeholder="Miles">
+            <input ${at} data-f="price" value="${v.price ? money(v.price) : ''}" placeholder="Price">
+          </div>
+          <input ${at} data-f="link" value="${escapeHtml(v.link || '')}" placeholder="Link (website VDP)">
+          <span class="hint">${v.manual ? (v.found ? 'added · from website' : 'added by hand') : 'from website'} ${outside}
+            ${v.link ? `· <a href="${escapeHtml(v.link)}" target="_blank">open ↗</a>` : ''}</span>
+        </div>
+        <button class="x" data-remove="${listKey}:${i}" title="Remove">✕</button>
+      </li>`;
+    })
+    .join('');
+}
+
+function renderVehicleLists() {
+  $('#alts-list').innerHTML = vehicleRows(state.alternatives, 'alternatives');
+  $('#fs-vehicles').innerHTML = vehicleRows(state.fsVehicles, 'fsVehicles');
+  $('#btn-fs-from-alts').hidden = !state.alternatives.some((a) => a.selected !== false);
+}
+
 function renderAlternatives() {
-  $('#alts-list').innerHTML = state.alternatives.length
-    ? state.alternatives
-        .map(
-          (a, i) => `<li><input type="checkbox" data-alt="${i}" ${a.selected ? 'checked' : ''}>
-            <span>${escapeHtml(a.title || 'Vehicle')} — #${escapeHtml(a.stock || '?')} — <b>${money(a.price)}</b>
-            ${a.inWindow ? '' : '<span class="tag">outside price window</span>'}
-            ${a.url ? ` <a href="${escapeHtml(a.url)}" target="_blank">VDP</a>` : ''}</span></li>`,
-        )
-        .join('')
-    : '<li class="hint">None yet.</li>';
+  renderVehicleLists();
 }
 
 function renderDraftGate() {
@@ -862,9 +955,35 @@ function wire() {
     };
   }
 
-  $('#alts-list').onchange = (e) => {
-    const i = e.target.dataset.alt;
-    if (i !== undefined) state.alternatives[Number(i)].selected = e.target.checked;
+  // Vehicle rows (alternatives + freestyle): edits write straight to state.
+  const onVehicleEdit = (e) => {
+    const { list, idx, f } = e.target.dataset;
+    if (!list || !f) return;
+    const v = state[list][Number(idx)];
+    if (f === 'selected') v.selected = e.target.checked;
+    else if (f === 'miles' || f === 'price') v[f] = parseMoney(e.target.value);
+    else v[f] = e.target.value.trim();
+  };
+  const onVehicleClick = (e) => {
+    const rm = e.target.dataset.remove;
+    if (!rm) return;
+    const [list, idx] = rm.split(':');
+    state[list].splice(Number(idx), 1);
+    renderVehicleLists();
+  };
+  for (const id of ['#alts-list', '#fs-vehicles']) {
+    $(id).addEventListener('input', onVehicleEdit);
+    $(id).addEventListener('change', onVehicleEdit);
+    $(id).addEventListener('click', onVehicleClick);
+  }
+  $('#btn-alt-add').onclick = () => busy('Looking up…', () => addVehicle('alternatives', '#alt-add-query'));
+  $('#btn-fs-veh-add').onclick = () => busy('Looking up…', () => addVehicle('fsVehicles', '#fs-veh-query'));
+  $('#btn-fs-from-alts').onclick = () => {
+    for (const a of state.alternatives.filter((x) => x.selected !== false)) {
+      if (!state.fsVehicles.some((v) => (v.link && v.link === a.link) || (v.stock && v.stock === a.stock))) state.fsVehicles.push({ ...a });
+    }
+    $('#freestyle-section').open = true;
+    renderVehicleLists();
   };
 
   document.body.addEventListener('click', async (e) => {
@@ -927,6 +1046,7 @@ async function boot() {
   renderSettings();
   renderQueue();
   renderTasks();
+  renderVehicleLists();
   if (state.record) {
     renderCustomer();
     renderInventory();

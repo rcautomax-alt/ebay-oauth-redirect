@@ -71,3 +71,12 @@ test('customer names are HTML-escaped', () => {
   const d = buildDrafts({ ...common, customer: { firstName: '<b>x' }, mode: 'quote', pricing });
   assert.ok(d.emailHtml.includes('&lt;b&gt;x'));
 });
+
+test('one alternative: text names it and carries the link; email links each unit', () => {
+  const alt = { title: '2014 Chrysler 200 Limited', stock: '299001A', price: null, miles: 61234, link: 'https://www.ritcheybuickgmc.com/vdp/299001A' };
+  const d = buildDrafts({ ...common, vehicleTitle: '2013 Chrysler 200 Convertible', mode: 'alternatives', alternatives: [alt] });
+  assert.ok(d.sms.includes('we have a 2014 Chrysler 200 Limited that I think you’ll like even more: https://www.ritcheybuickgmc.com/vdp/299001A'));
+  assert.ok(d.emailText.includes('2014 Chrysler 200 Limited — 61,234 miles — Stock # 299001A'));
+  assert.ok(!d.emailText.includes('$0'));
+  assert.ok(d.emailHtml.includes('<a href="https://www.ritcheybuickgmc.com/vdp/299001A">'));
+});

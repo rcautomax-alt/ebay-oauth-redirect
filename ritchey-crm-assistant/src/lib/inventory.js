@@ -58,6 +58,12 @@ export function parseVehicleCard(card, labels, baseUrl) {
     stock = m && isPlausibleStock(m[1]) ? m[1] : null;
   }
 
+  let miles = parseMoney(pick(data, ['miles', 'mileage', 'odometer']));
+  if (!miles) {
+    const mm = text.match(/(?:Mileage|Miles|Odometer|Odom)\s*:?\s*([\d,]{2,7})\b|\b([\d,]{2,7})\s*(?:mi\b|miles\b)/i);
+    miles = mm ? parseMoney(mm[1] || mm[2]) : null;
+  }
+
   let price = parseMoney(pick(data, ['saleprice', 'price', 'internetprice']));
   if (!price || price < 1000) price = parsePrice(text, labels);
 
@@ -86,6 +92,7 @@ export function parseVehicleCard(card, labels, baseUrl) {
     stock,
     vin: vin ? vin.toUpperCase() : null,
     price,
+    miles,
     url,
   };
 }
@@ -109,6 +116,7 @@ export function vehiclesFromJsonLd(jsonStrings) {
         stock: isPlausibleStock(node.sku || node.productID) ? node.sku || node.productID : null,
         vin: isPlausibleVin(node.vehicleIdentificationNumber) ? node.vehicleIdentificationNumber.toUpperCase() : null,
         price: parseMoney(offers.price),
+        miles: parseMoney(node.mileageFromOdometer?.value ?? node.mileageFromOdometer),
         url: offers.url || node.url || '',
       });
     }
@@ -163,21 +171,35 @@ export function findVehicle(vehicles, { stock, vin }) {
   );
 }
 
+// Free-text search on the site (the q= box behind searchall.aspx), used when
+// the model search comes back empty.
+export function keywordSearchUrl(searchAllBase, words) {
+  return `${searchAllBase}?q=${encodeURIComponent(String(words).trim())}`;
+}
+
+// Best link for a vehicle: its own VDP if we saw one, else the exact
+// stock/VIN search that VinSolutions' "View VDP" button uses.
+export function vehicleLink(v, searchAllBase) {
+  if (v.url) return v.url;
+  const key = v.vin || v.stock;
+  return key && searchAllBase ? stockOrVinUrl(searchAllBase, key) : '';
+}
+
 // Similar units for a sold / unavailable VOI. Closest price first when we know
-// the original price; newest first otherwise.
+// the original price; newest first otherwise. Units whose price couldn't be
+// read are kept (at the end) rather than silently dropped.
 export function pickAlternatives(vehicles, { excludeStock, excludeVin, targetPrice, window, limit }) {
   const ex = normalizeStock(excludeStock);
-  const pool = vehicles.filter(
-    (v) => v.price && !(ex && normalizeStock(v.stock) === ex) && !(excludeVin && v.vin === excludeVin),
-  );
+  const pool = vehicles.filter((v) => !(ex && normalizeStock(v.stock) === ex) && !(excludeVin && v.vin === excludeVin));
+  const priced = pool.filter((v) => v.price);
+  const unpriced = pool.filter((v) => !v.price).map((v) => ({ ...v, inWindow: null }));
+  let ranked;
   if (targetPrice) {
-    return pool
+    ranked = priced
       .map((v) => ({ ...v, diff: Math.abs(v.price - targetPrice), inWindow: Math.abs(v.price - targetPrice) <= window }))
-      .sort((a, b) => a.diff - b.diff)
-      .slice(0, limit);
+      .sort((a, b) => a.diff - b.diff);
+  } else {
+    ranked = priced.map((v) => ({ ...v, inWindow: true })).sort((a, b) => (b.year || 0) - (a.year || 0) || a.price - b.price);
   }
-  return pool
-    .map((v) => ({ ...v, inWindow: true }))
-    .sort((a, b) => (b.year || 0) - (a.year || 0) || a.price - b.price)
-    .slice(0, limit);
+  return [...ranked, ...unpriced].slice(0, limit);
 }

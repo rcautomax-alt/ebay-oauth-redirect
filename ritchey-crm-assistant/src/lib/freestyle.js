@@ -8,7 +8,7 @@ export const STARTERS = [
   { label: 'Trade bump', text: "I'm willing to give $____ more for their trade-in. " },
   { label: 'Bad phone #', text: "The phone number we have for them isn't working. Ask for the best number to reach them. " },
   { label: 'Price drop', text: 'The price on their vehicle just dropped to $____. ' },
-  { label: 'Back in stock', text: 'We just got in a vehicle that fits what they were looking for: ____. ' },
+  { label: 'Similar one came in', text: 'The vehicle they wanted sold, but we just took in a similar one (see vehicle below). Let them know and send the link. ' },
   { label: 'Checking in', text: "Just checking in — haven't heard back in a while, no pressure. " },
 ];
 
@@ -21,7 +21,20 @@ function noteLines(excerpt, fullName) {
   return cleaned.length > 1500 ? `${cleaned.slice(0, 1500)}…` : cleaned;
 }
 
-export function buildFreestylePrompt({ instruction, record, settings, lang = 'en', channels = { sms: true, email: true }, pricing = null, notesExcerpt = '' }) {
+function vehicleLine(v) {
+  return [
+    v.title || 'Vehicle',
+    v.miles && `${Number(v.miles).toLocaleString('en-US')} miles`,
+    v.stock && `Stock # ${v.stock}`,
+    v.price && `Price ${money(v.price)}`,
+    v.link && `Link: ${v.link}`,
+    v.note,
+  ]
+    .filter(Boolean)
+    .join(' | ');
+}
+
+export function buildFreestylePrompt({ instruction, record, settings, lang = 'en', channels = { sms: true, email: true }, pricing = null, notesExcerpt = '', vehicles = [] }) {
   const r = record || {};
   const s = settings;
   const want = [channels.sms && 'a text message', channels.email && 'an email'].filter(Boolean).join(' and ') || 'a text message and an email';
@@ -29,6 +42,7 @@ export function buildFreestylePrompt({ instruction, record, settings, lang = 'en
     `Customer first name: ${r.firstName || '[Customer First Name]'}`,
     r.vehicleTitle && `Vehicle of interest: ${r.vehicleTitle}${r.stock ? ` (Stock # ${r.stock})` : ''}`,
     r.crmStatus === 'sold' && 'Note: that vehicle has SOLD.',
+    r.crmStatus === 'not-inventory' && 'Note: that vehicle is not in our inventory.',
     pricing &&
       `Pricing I've worked up: Asking ${money(pricing.asking)}, Manager Discount -${money(pricing.discount)}, Manager Special Price ${money(pricing.special)}, Price with Fees ${money(pricing.withFees)}`,
     r.notesCount !== null && r.notesCount !== undefined && r.notesCount !== '' && `Prior notes/history entries: ${r.notesCount}`,
@@ -44,12 +58,16 @@ export function buildFreestylePrompt({ instruction, record, settings, lang = 'en
     '',
     'CUSTOMER CONTEXT:',
     ...context.map((c) => `- ${c}`),
+    ...(vehicles.length
+      ? ['', 'VEHICLE(S) TO MENTION (include each link exactly as written, in both the text and the email):', ...vehicles.map((v) => `- ${vehicleLine(v)}`)]
+      : []),
     ...(notes ? ['', 'RECENT CRM NOTES (newest first, for context and tone only — do not quote them back):', notes] : []),
     '',
-    'RULES:',
+    'DEFAULTS (my instructions above win if they conflict):',
     `- Write in ${lang === 'es' ? 'Spanish (use "usted")' : 'English'}.`,
     '- Sound like a real person at a dealership: friendly, direct, professional. No hype, no emojis.',
-    '- Only use facts and numbers I gave you. If something is missing, leave a clear blank like [____] instead of inventing it.',
+    '- Only use facts, numbers and links I gave you. If something is missing, leave a clear blank like [____] instead of inventing it.',
+    '- Put links on their own, as plain URLs — do not shorten or change them.',
     '- Match the tone of the notes if there are any; otherwise keep it polite and professional.',
     '- End with one simple question or next step.',
     '- Text message: under 320 characters, starts with "Hi [first name], this is Rick…" style intro, no signature.',

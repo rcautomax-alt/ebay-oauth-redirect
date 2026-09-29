@@ -59,3 +59,16 @@ test('a reply with no labels becomes the text', () => {
 test('email text to HTML keeps paragraphs and bold, escapes the rest', () => {
   assert.equal(emailTextToHtml('Hi <b>,\n\nI can do **$1,500** more.\nThanks'), '<p>Hi &lt;b&gt;,</p>\n<p>I can do <b>$1,500</b> more.<br>Thanks</p>');
 });
+
+test('vehicles to mention carry their links, and my instructions win', () => {
+  const p = buildFreestylePrompt({
+    instruction: 'Her Chrysler 200 sold but we took in another with fewer miles. Send her the link.',
+    record: { ...record, vehicleTitle: '2013 Chrysler 200 Convertible', crmStatus: 'sold' },
+    settings: DEFAULT_SETTINGS,
+    vehicles: [{ title: '2014 Chrysler 200 Limited Convertible', miles: 61234, stock: '299001A', price: 11995, link: 'https://www.ritcheybuickgmc.com/used-Daytona-2014-Chrysler-200.htm' }],
+  });
+  assert.ok(p.includes('VEHICLE(S) TO MENTION'));
+  assert.ok(p.includes('2014 Chrysler 200 Limited Convertible | 61,234 miles | Stock # 299001A | Price $11,995 | Link: https://www.ritcheybuickgmc.com/used-Daytona-2014-Chrysler-200.htm'));
+  assert.ok(p.includes('that vehicle has SOLD'));
+  assert.ok(p.includes('my instructions above win'));
+});

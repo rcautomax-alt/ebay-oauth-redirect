@@ -38,6 +38,9 @@ const COPY = {
       `Hi ${n}, it’s ${s.firstName}, ${s.title} at ${s.dealership}, following up on the ${v}. I put together special manager pricing of ${p} for you. Do you have a few minutes to connect today?`,
     smsAlt: (n, s, v) =>
       `Hi ${n}, this is ${s.firstName}, ${s.title} at ${s.dealership}. The ${v} you asked about just sold, but I have a few similar ones I’d love to show you. Do you have a few minutes to connect today?`,
+    smsAltOne: (n, s, v, title, link) =>
+      `Hi ${n}, this is ${s.firstName}, ${s.title} at ${s.dealership}. The ${v} you asked about just sold, but we have a ${title} that I think you’ll like even more${link ? `: ${link}` : '.'} Do you have a few minutes to connect today?`,
+    miles: 'miles',
   },
   es: {
     hi: (n) => `Hola ${n || '[Nombre del Cliente]'},`,
@@ -68,6 +71,9 @@ const COPY = {
       `Hola ${n}, soy ${s.firstName}, ${s.titleEs} en ${s.dealership}, dando seguimiento sobre el ${v}. Le preparé un precio especial de gerente de ${p}. ¿Tiene unos minutos para hablar hoy?`,
     smsAlt: (n, s, v) =>
       `Hola ${n}, soy ${s.firstName}, ${s.titleEs} en ${s.dealership}. El ${v} que le interesaba ya se vendió, pero tengo algunos similares que me encantaría mostrarle. ¿Tiene unos minutos para hablar hoy?`,
+    smsAltOne: (n, s, v, title, link) =>
+      `Hola ${n}, soy ${s.firstName}, ${s.titleEs} en ${s.dealership}. El ${v} que le interesaba ya se vendió, pero tenemos un ${title} que creo que le va a gustar aún más${link ? `: ${link}` : '.'} ¿Tiene unos minutos para hablar hoy?`,
+    miles: 'millas',
   },
 };
 
@@ -92,11 +98,15 @@ function pricingBlock(c, stock, p) {
   };
 }
 
-function altBlock(alts) {
+function altBlock(alts, c) {
   const segs = [];
   alts.forEach((a, i) => {
     if (i) segs.push(S('\n'));
-    segs.push(S('• '), S(a.title || 'Vehicle', true), S(` — Stock # ${a.stock || 'n/a'} — `), S(money(a.price), true));
+    segs.push(S('• '), S(a.title || 'Vehicle', true));
+    if (a.miles) segs.push(S(` — ${Number(a.miles).toLocaleString('en-US')} ${c.miles}`));
+    if (a.stock) segs.push(S(` — Stock # ${a.stock}`));
+    if (a.price) segs.push(S(' — '), S(money(a.price), true));
+    if (a.link) segs.push(S('\n   '), { t: a.link, link: a.link });
   });
   return { lines: true, segs };
 }
@@ -107,6 +117,7 @@ function renderHtml(paras) {
       const inner = p.segs
         .map((s) => {
           const t = escapeHtml(s.t).replace(/\n/g, '<br>');
+          if (s.link) return `<a href="${escapeHtml(s.link)}">${t}</a>`;
           return s.b ? `<b>${t}</b>` : t;
         })
         .join('');
@@ -141,10 +152,16 @@ export function buildDrafts({ mode, lang = 'en', customer, vehicleTitle, stock, 
     sms = (followUp ? c.smsQuoteFollow : c.smsQuote)(first || '[Customer First Name]', s, v, smsPrice);
   } else if (mode === 'alternatives') {
     paras.push({ segs: [S(c.soldIntro)] });
-    if (alternatives.length) paras.push(altBlock(alternatives));
+    if (alternatives.length) paras.push(altBlock(alternatives, c));
     paras.push({ segs: [S(c.soldReply(s))] });
     subject = c.subjectAlt(v);
-    sms = c.smsAlt(first || '[Customer First Name]', s, v);
+    if (alternatives.length === 1) {
+      // One vehicle to offer: name it and link it right in the text.
+      const a = alternatives[0];
+      sms = c.smsAltOne(first || '[Customer First Name]', s, v, a.title || 'vehicle', a.link || '');
+    } else {
+      sms = c.smsAlt(first || '[Customer First Name]', s, v);
+    }
   } else {
     throw new Error(`No draft for mode "${mode}".`);
   }

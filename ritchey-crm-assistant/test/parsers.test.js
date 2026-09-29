@@ -348,3 +348,18 @@ test('exact VIN/stock search URL matches the VinSolutions View VDP link', async 
     'https://www.ritcheybuickgmc.com/searchall.aspx?stockOrVIN=1GKKRSKD2HJ284655&q=1GKKRSKD2HJ284655',
   );
 });
+
+test('alternatives keep units whose price could not be read; miles are parsed', async () => {
+  const { pickAlternatives, parseVehicleCard } = await import('../src/lib/inventory.js');
+  const alts = pickAlternatives(
+    [
+      { title: '2013 Chrysler 200', stock: 'SOLD1', price: 9995 },
+      { title: '2014 Chrysler 200', stock: 'NEW2', price: null },
+      { title: '2012 Chrysler 200', stock: 'OLD3', price: 8995 },
+    ],
+    { excludeStock: 'SOLD1', targetPrice: null, window: 5000, limit: 3 },
+  );
+  assert.deepEqual(alts.map((a) => a.stock), ['OLD3', 'NEW2']);
+  const v = parseVehicleCard({ text: '2014 Chrysler 200 Limited Stock #: NEW2 Mileage: 61,234 SALE PRICE $11,995', data: {} }, LABELS, '');
+  assert.equal(v.miles, 61234);
+});

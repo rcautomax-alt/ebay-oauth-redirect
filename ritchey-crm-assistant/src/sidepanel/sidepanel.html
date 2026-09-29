@@ -91,9 +91,13 @@
 
   <section id="alts-section" hidden>
     <h2>Alternatives</h2>
-    <p class="hint">Same model from the website. Uncheck any you don't want offered.</p>
+    <p class="hint">Same model from the website. Uncheck any you don't want offered, fix any detail, or add one the website doesn't show yet (fresh trade).</p>
     <ul id="alts-list" class="alts"></ul>
-    <button id="btn-alts">Search website for alternatives</button>
+    <div class="row">
+      <input id="alt-add-query" placeholder="Stock #, VIN or website link (blank = type it in)">
+      <button id="btn-alt-add">Add vehicle</button>
+    </div>
+    <button id="btn-alts">Search website again</button>
   </section>
 
   <details id="freestyle-section">
@@ -102,6 +106,13 @@
     <div id="fs-starters" class="row"></div>
     <textarea id="fs-instruction" rows="4" placeholder="e.g. I'm willing to give $1,500 more for her trade. Keep it casual."></textarea>
     <label class="check"><input type="checkbox" id="fs-pricing"> Include the pricing I've worked up</label>
+    <h3>Vehicles to mention <span class="hint">(links go in the text and email)</span></h3>
+    <ul id="fs-vehicles" class="alts"></ul>
+    <div class="row">
+      <input id="fs-veh-query" placeholder="Stock #, VIN or website link (blank = type it in)">
+      <button id="btn-fs-veh-add">Add vehicle</button>
+    </div>
+    <button id="btn-fs-from-alts" hidden>＋ Add the checked alternatives</button>
     <div class="row">
       <button id="btn-fs-copy" class="primary">1. Copy request for Claude</button>
       <a href="https://claude.ai/new" target="_blank" rel="noopener">Open Claude ↗</a>
