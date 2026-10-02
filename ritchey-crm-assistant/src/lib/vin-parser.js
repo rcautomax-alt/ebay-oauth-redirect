@@ -298,7 +298,29 @@ export function parseCustomer(frames, map = VIN_MAP) {
     parsedTitle = parseVehicleTitle(vSection);
   }
 
-  const isActive = map.markers.active.test(text);
+  // Structured vehicle data from the lead panel beats reading the screen text.
+  // Several frames can carry it (the dashboard has only VIN + stock; the
+  // Lead Info frame has price and miles too). Merge them, richest first.
+  const richness = (x) => (x.internetPrice || x.price ? 4 : 0) + (x.year && x.make ? 2 : 0) + (x.stock || x.vin ? 1 : 0);
+  const lvs = right.map((fr) => fr.leadVehicle).filter((x) => x && (x.stock || x.vin)).sort((a, b) => richness(b) - richness(a));
+  const lv = lvs.length ? lvs.reduce((acc, x) => {
+    for (const [k, val] of Object.entries(x)) if (acc[k] == null && val != null) acc[k] = val;
+    return acc;
+  }, {}) : null;
+  let crmPrice = null;
+  let miles = null;
+  if (lv) {
+    if (isPlausibleStock(lv.stock)) stock = lv.stock;
+    if (isPlausibleVin(lv.vin)) vin = String(lv.vin).toUpperCase();
+    if (lv.year && lv.make && lv.model) {
+      const t = `${lv.year} ${lv.make} ${lv.model}${lv.trim ? ` ${lv.trim}` : ''}`;
+      parsedTitle = { title: t, year: Number(lv.year), make: lv.make, model: lv.model };
+    }
+    crmPrice = Number(lv.internetPrice || lv.price) || null;
+    miles = Number(lv.miles) || null;
+  }
+
+  const isActive = map.markers.active.test(text) || lv?.status === 'A';
   const isSold = map.markers.sold.test(text);
   const needsVin = map.markers.notInventory.test(text);
 
@@ -333,6 +355,8 @@ export function parseCustomer(frames, map = VIN_MAP) {
       stock,
       vin,
       status,
+      crmPrice, // VinSolutions "Internet Price"
+      miles,
       markers: { isActive, isSold, needsVin },
     },
     notes: { count: notesCount, excerpt: notesExcerpt },

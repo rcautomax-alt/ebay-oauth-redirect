@@ -1,4 +1,4 @@
-# Ritchey CRM Assistant (v0.6.3)
+# Ritchey CRM Assistant (v0.7)
 
 A Chrome extension that sits in a side panel next to VinSolutions. It reads the customer you have open, checks the vehicle of interest against the website (ritcheyautos.com), and drafts the **"\*10 Day: MGR | Send Out Price"** text and email for you to review.
 
@@ -36,7 +36,7 @@ A Chrome extension that sits in a side panel next to VinSolutions. It reads the 
      - 🟧 **Confirm:** you tick "Got it" before drafts unlock. This covers tasks assigned to Arthur Deeley or Michael Crynock, "VIN required to use Accelerate" leads, "you said sold but CRM says active" mismatches, units not found on the website, and a customer on screen who doesn't match the one you picked.
      - 🟨 **Heads-up:** sold unit, unreadable fields, CRM and website disagreeing.
      - 🟦 **Info:** 🔥 shared VOI with another customer in today's queue, and tone (0 notes = first-touch, notes = follow-up).
-3. **Inventory check** runs automatically. It tries `searchused.aspx?stock=…` first, then **always falls back to `?model=…`** before calling a unit gone. It grabs the **SALE PRICE** and shows links to the pages it checked.
+3. **Asking price comes from VinSolutions.** The customer's lead carries the vehicle's **Internet Price**, mileage and status (the same numbers as VinSolutions' Vehicle Details window), so the quote doesn't depend on the website. The website check still runs as a cross-check: if it shows a different price you get a warning, and if the website can't be reached or doesn't list the unit, you get a heads-up but can still quote. The website is still used for alternatives and vehicle links.
 4. **Type your discount.** Pricing calculates live:
    - Manager Special Price = SALE PRICE − discount
    - Price with Fees = Special + **$1,331** ($999 doc + $299 e-filing + $33 tag agency)

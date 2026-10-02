@@ -94,9 +94,18 @@ export function evaluate(record, ctx) {
       add('warn', 'CRM_VS_SITE', 'CRM says sold, but the website still lists it (site can lag a day). Check before offering it.');
     }
     if (!inventory.found && mode === 'quote') {
-      add('confirm', 'NOT_ON_SITE', 'CRM shows active, but not found on the website by stock # OR model search. Enter the asking price manually or treat as sold.');
+      if (voi.crmPrice) {
+        // VinSolutions has the unit and its Internet Price — the website is
+        // only a cross-check, so this is a heads-up, not a stop.
+        add('warn', 'NOT_ON_SITE', "Couldn't confirm this unit on the website, but VinSolutions has it active — using its Internet Price.");
+      } else {
+        add('confirm', 'NOT_ON_SITE', 'CRM shows active, but not found on the website by stock # OR model search. Enter the asking price manually or treat as sold.');
+      }
     }
-    if (inventory.found && !inventory.vehicle?.price && mode === 'quote') {
+    if (inventory.found && voi.crmPrice && inventory.vehicle?.price && inventory.vehicle.price !== voi.crmPrice && mode === 'quote') {
+      add('warn', 'PRICE_MISMATCH', `VinSolutions Internet Price is $${voi.crmPrice.toLocaleString('en-US')} but the website shows $${inventory.vehicle.price.toLocaleString('en-US')}. Using VinSolutions — check which is current.`);
+    }
+    if (inventory.found && !inventory.vehicle?.price && !voi.crmPrice && mode === 'quote') {
       add('warn', 'NO_SITE_PRICE', 'Found on the website but no SALE PRICE was readable — enter it manually.');
     }
   }

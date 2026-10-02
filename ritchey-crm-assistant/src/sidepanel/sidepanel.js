@@ -445,6 +445,8 @@ function recordFromParsed(p) {
     stock: p.voi.stock || '',
     vin: p.voi.vin || '',
     crmStatus: p.voi.status,
+    crmPrice: p.voi.crmPrice || null,
+    miles: p.voi.miles || null,
     notesCount: p.notes.count,
   };
 }
@@ -483,6 +485,11 @@ async function readCustomer({ expectName = null } = {}) {
       $('#fs-reply').value = '';
       $('#fs-prompt').textContent = '';
       renderVehicleLists(); // clear the old customer's vehicle rows off screen
+      // VinSolutions' own Internet Price is the asking price; the website
+      // lookup below only cross-checks it.
+      if (state.record.crmPrice) state.asking = state.record.crmPrice;
+      renderPricing();
+      renderInventory();
       renderCustomer();
       const result = reevaluate();
       setStatus('Customer read. Review the fields — anything wrong, just fix it.', 'ok');
@@ -573,11 +580,25 @@ async function runLookup() {
   try {
     state.inventory = await lookupInventory({ stock: r.stock, vin: r.vin, model: r.model });
     if (state.inventory.vehicle) state.inventory.vehicle = withStore(state.inventory.vehicle);
-    if (state.inventory.vehicle?.price) state.asking = state.inventory.vehicle.price;
-    setStatus(state.inventory.found ? 'Found on the website.' : 'Not found on the website (stock and model search).', state.inventory.found ? 'ok' : 'error');
+    const sitePrice = state.inventory.vehicle?.price;
+    if (!state.asking && sitePrice) state.asking = sitePrice;
+    const crm = state.record.crmPrice;
+    setStatus(
+      state.inventory.found
+        ? `Found on the website.${crm ? ` Asking price from VinSolutions: ${money(crm)}.` : ''}`
+        : crm
+          ? `Website didn't confirm it, but VinSolutions has it at ${money(crm)} — using that.`
+          : 'Not found on the website (stock and model search).',
+      state.inventory.found || crm ? 'ok' : 'error',
+    );
   } catch (err) {
     state.inventory = null;
-    setStatus(`Website lookup failed: ${err.message}`, 'error', () => busy('Retrying…', runLookup));
+    const crm = state.record.crmPrice;
+    setStatus(
+      crm ? `Website lookup failed (${err.message}) — using the VinSolutions Internet Price, ${money(crm)}.` : `Website lookup failed: ${err.message}`,
+      crm ? 'ok' : 'error',
+      () => busy('Retrying…', runLookup),
+    );
   }
   renderInventory();
   renderPricing();
@@ -650,7 +671,7 @@ function currentEvaluation() {
     manager: r.manager,
     assignedTo: r.assignedTo,
     task: { type: r.taskType, template: state.pickedTask?.template || null, isPriceQuote: state.pickedTask ? !!state.pickedTask.isPriceQuote : null },
-    voi: { stock: r.stock, vin: r.vin, status: r.crmStatus },
+    voi: { stock: r.stock, vin: r.vin, status: r.crmStatus, crmPrice: r.crmPrice ? Number(r.crmPrice) : null },
     notes: { count: r.notesCount === '' || r.notesCount === null ? null : Number(r.notesCount) },
   };
   return evaluate(record, {
@@ -922,8 +943,12 @@ function renderFlags(result) {
 function renderInventory() {
   const inv = state.inventory;
   const el = $('#inventory-result');
+  const r = state.record || {};
+  const crmLine = r.crmPrice
+    ? `<p class="ok">✓ VinSolutions: ${escapeHtml(r.vehicleTitle || 'vehicle')} — Stock # ${escapeHtml(r.stock || '?')}${r.miles ? ` — ${Number(r.miles).toLocaleString('en-US')} mi` : ''} — Internet Price <b>${money(r.crmPrice)}</b></p>`
+    : '';
   if (!inv) {
-    el.innerHTML = '<p class="hint">Not checked yet.</p>';
+    el.innerHTML = `${crmLine}<p class="hint">Website not checked yet.</p>`;
     return;
   }
   const v = inv.vehicle;
@@ -931,12 +956,12 @@ function renderInventory() {
     .map((t) => (typeof t === 'string' ? { url: t, count: null } : t))
     .map((t) => `<a href="${escapeHtml(t.url)}" target="_blank">${escapeHtml(t.url.replace(/^https?:\/\/[^/]+/, ''))}</a>${t.note ? ` — <span class="warn">⚠️ ${escapeHtml(t.note)}</span>` : t.count === null ? '' : ` — ${t.count} vehicle${t.count === 1 ? '' : 's'}`}`)
     .join('<br>');
-  el.innerHTML = v
-    ? `<p class="ok">✓ ${escapeHtml(v.title || 'Vehicle')} — Stock # ${escapeHtml(v.stock || '?')} — SALE PRICE <b>${money(v.price) || 'not readable'}</b></p>
+  el.innerHTML = crmLine + (v
+    ? `<p class="ok">✓ Website: ${escapeHtml(v.title || 'Vehicle')} — Stock # ${escapeHtml(v.stock || '?')} — SALE PRICE <b>${money(v.price) || 'not readable'}</b></p>
        ${v.store?.status === 'excluded' ? `<p class="warn">⚠️ Listed at the ${escapeHtml(v.store.where)} store, not yours.</p>` : ''}
        ${v.url ? `<p><a href="${escapeHtml(v.url)}" target="_blank">Open VDP</a></p>` : ''}
        <p class="hint">Checked: ${tried}</p>`
-    : `<p class="hint warn">Vehicle of interest not found on the website${state.record?.crmStatus === 'sold' ? ' (expected — it sold)' : ''}.</p><p class="hint">Checked: ${tried || '—'}</p>`;
+    : `<p class="hint warn">Vehicle of interest not found on the website${state.record?.crmStatus === 'sold' ? ' (expected — it sold)' : ''}.</p><p class="hint">Checked: ${tried || '—'}</p>`);
 }
 
 function renderPricing() {

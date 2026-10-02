@@ -24,6 +24,40 @@ export function probeFrame() {
         .map((r) => Array.from(r.cells).map((c) => (c.innerText || '').trim())),
     )
     .filter((t) => t.length > 1);
+
+  // The lead panel carries the vehicle of interest as data: a "PageData" JSON
+  // blob (price, miles, status…) and a small data island (VIN, stock #).
+  let leadVehicle = null;
+  try {
+    const pdEl = document.querySelector('[data-pagedata]');
+    const pd = pdEl ? JSON.parse(pdEl.getAttribute('data-pagedata')) : null;
+    const v = pd && pd.LeadVehicle;
+    if (v) {
+      leadVehicle = {
+        year: v.YearName || null,
+        make: v.Make || null,
+        model: v.Model || null,
+        trim: v.TrimName || v.ModelTrim || null,
+        stock: v.DealerStockNum || v.StockNumber || null,
+        vin: v.VIN || null,
+        internetPrice: v.InternetPrice || null,
+        price: v.Price || null,
+        miles: v.Mileage || null,
+        status: v.Status || null,
+        inventoryType: v.InventoryType || null,
+        vdp: pd.VdpLink || null,
+      };
+    }
+  } catch (e) {
+    /* no PageData on this frame, or it isn't JSON */
+  }
+  if (!leadVehicle) {
+    const island = document.querySelector('[id$="_dataIsland"][data-stocknumber], [data-inventoryid][data-vin]');
+    if (island) {
+      leadVehicle = { stock: island.getAttribute('data-stocknumber') || null, vin: island.getAttribute('data-vin') || null };
+    }
+  }
+
   return {
     name: window.name || '',
     path,
@@ -32,6 +66,7 @@ export function probeFrame() {
     isTop: window === window.top,
     text: body ? (body.innerText || '').slice(0, 200000) : '',
     tables,
+    leadVehicle,
   };
 }
 

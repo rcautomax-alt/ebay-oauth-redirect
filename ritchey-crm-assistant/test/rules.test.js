@@ -122,3 +122,13 @@ test('Send Out Price task has no template flag', () => {
   const rec = { ...base(), task: { type: 'email', isPriceQuote: true, template: '*10 Day: MGR | Send Out Price' } };
   assert.ok(!codes(evaluate(rec, { settings })).includes('OTHER_TEMPLATE'));
 });
+
+test('VinSolutions price: website miss is a heads-up, not a stop; price mismatch warns', () => {
+  const rec = base();
+  rec.voi.crmPrice = 11488;
+  const miss = evaluate(rec, { settings, inventory: { found: false } });
+  assert.equal(miss.flags.find((f) => f.code === 'NOT_ON_SITE').level, 'warn');
+  assert.ok(canDraft(miss, {}));
+  const diff = evaluate(rec, { settings, inventory: { found: true, vehicle: { price: 11995 } } });
+  assert.ok(diff.flags.find((f) => f.code === 'PRICE_MISMATCH').message.includes('$11,488'));
+});

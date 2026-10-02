@@ -382,3 +382,38 @@ test('group site: only your stores are offered; unlabeled listings are "unknown"
   assert.equal(storeOf({ listingText: 'Serving Daytona, Melbourne and Dublin' }, A, X).status, 'unknown');
   assert.deepEqual(storeOf({ location: 'Dublin', listingText: 'Serving Daytona, Melbourne and Dublin' }, A, X), { status: 'excluded', where: 'Dublin' });
 });
+
+test('vehicle of interest comes from VinSolutions lead data (price, miles, status)', () => {
+  const frames = [{
+    name: '', path: [''], url: 'https://vinsolutions.app.coxautoinc.com/CarDashboard/Pages/rims2.aspx?x', text: 'Lead Info\nManager:\tRick Clemons\nNotes & History (0)',
+    tables: [],
+    leadVehicle: { year: 2017, make: 'Ford', model: 'Escape', trim: 'SE', stock: '162763A', vin: '1FMCU0GD7HUD24363', internetPrice: 11488, price: 11488, miles: 56362, status: 'A' },
+  }];
+  const r = parseCustomer(frames);
+  assert.equal(r.voi.title, '2017 Ford Escape SE');
+  assert.equal(r.voi.model, 'Escape');
+  assert.equal(r.voi.stock, '162763A');
+  assert.equal(r.voi.vin, '1FMCU0GD7HUD24363');
+  assert.equal(r.voi.crmPrice, 11488);
+  assert.equal(r.voi.miles, 56362);
+  assert.equal(r.voi.status, 'active');
+});
+
+test('lead data is merged across frames; the frame with the price wins', () => {
+  const frames = [
+    { name: '', url: 'https://x/CarDashboard/Pages/CRM/CustomerDashboard.aspx', text: 'Customer Dashboard', tables: [], leadVehicle: { stock: '162763A', vin: '1FMCU0GD7HUD24363' } },
+    { name: '', url: 'https://x/CarDashboard/Pages/rims2.aspx', text: 'Lead Info', tables: [], leadVehicle: { year: 2017, make: 'Ford', model: 'Escape', trim: 'SE', stock: '162763A', vin: '1FMCU0GD7HUD24363', internetPrice: 11488, miles: 56362, status: 'A' } },
+  ];
+  const r = parseCustomer(frames);
+  assert.equal(r.voi.crmPrice, 11488);
+  assert.equal(r.voi.miles, 56362);
+  assert.equal(r.voi.title, '2017 Ford Escape SE');
+});
+
+test('a sold notice still wins over lead data saying active', () => {
+  const frames = [{
+    name: '', url: 'https://x/CarDashboard/Pages/rims2.aspx', text: 'Warning: This vehicle is no longer in your active inventory', tables: [],
+    leadVehicle: { year: 2020, make: 'Cadillac', model: 'XT4', stock: '117222A', status: 'A', internetPrice: 24995 },
+  }];
+  assert.equal(parseCustomer(frames).voi.status, 'sold');
+});
