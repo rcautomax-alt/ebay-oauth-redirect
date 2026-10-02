@@ -147,6 +147,66 @@ export function probeTaskView() {
   return { activeTab: textOf(tab), sections };
 }
 
+// VinSolutions Inventory → Browse Inventory grid (Stock #, Yr, Make, Model,
+// Trim, VIN, Miles, Age, Web $, Lot $). Returns null when not on that screen.
+export function probeInventoryGrid() {
+  const grid = document.querySelector('table.searchgrid, table[id$="SearchGrid"]');
+  if (!grid || !/Inventory/i.test(location.href + (document.forms[0] ? document.forms[0].action : ''))) return null;
+  const textOf = (el) => (el ? (el.innerText || el.textContent || '').replace(/\s+/g, ' ').trim() : '');
+  const rows = Array.from(grid.rows);
+  const headerIdx = rows.findIndex((r) => /stock/i.test(textOf(r)) && /vin/i.test(textOf(r)));
+  if (headerIdx < 0) return { rows: [] };
+  const header = Array.from(rows[headerIdx].cells).map((c) => textOf(c).toLowerCase());
+  const col = (re) => header.findIndex((h) => re.test(h));
+  const idx = {
+    stock: col(/stock/), year: col(/^yr$|year/), make: col(/make/), model: col(/model/), trim: col(/trim/),
+    vin: col(/^vin$/), miles: col(/miles|odom/), age: col(/^age$/), web: col(/web/), lot: col(/lot/),
+  };
+  const out = [];
+  for (const r of rows.slice(headerIdx + 1)) {
+    const cells = Array.from(r.cells).map(textOf);
+    if (cells.length < header.length - 2) continue;
+    const get = (k) => (idx[k] >= 0 ? cells[idx[k]] || '' : '');
+    if (!get('stock') && !get('vin')) continue;
+    const details = r.querySelector('a[href*="VehicleDetails"]');
+    out.push({
+      stock: get('stock'), year: get('year'), make: get('make'), model: get('model'), trim: get('trim'),
+      vin: get('vin'), miles: get('miles'), age: get('age'), web: get('web'), lot: get('lot'),
+      detailsUrl: details ? details.href : '',
+    });
+  }
+  const search = document.querySelector('input[id$="SearchData"]');
+  const filter = document.querySelector('select[id$="LeftDropDown"]');
+  return {
+    rows: out,
+    search: search ? search.value : '',
+    filter: filter && filter.selectedIndex >= 0 ? textOf(filter.options[filter.selectedIndex]) : '',
+  };
+}
+
+// Type a search into Browse Inventory (Pre-Owned – All, 100 per page) and
+// submit it, exactly like pressing Enter in the search box. Read-only.
+export function runInventorySearch(term) {
+  const search = document.querySelector('input[id$="SearchData"]');
+  if (!search || !document.forms[0]) return false;
+  search.value = term;
+  const filter = document.querySelector('select[id$="LeftDropDown"]');
+  if (filter) {
+    const opt = Array.from(filter.options).find((o) => /pre-owned\s*-\s*all/i.test(o.textContent));
+    if (opt) filter.value = opt.value;
+  }
+  const size = document.querySelector('select[id$="PageSize"]');
+  if (size) {
+    const opt = Array.from(size.options).find((o) => o.textContent.trim() === '100');
+    if (opt) size.value = opt.value;
+  }
+  const pd = document.getElementById('__PageData');
+  if (pd) pd.value = '';
+  if (typeof window.SetPageData === 'function') window.SetPageData('ResetSearchPanel', 'Y');
+  document.forms[0].submit();
+  return true;
+}
+
 // Click a customer's name in the My Tasks list so VinSolutions opens their
 // dashboard. Navigation only — never touches Edit / Dismiss / send.
 export function clickTaskCustomer(rowKey, customer) {

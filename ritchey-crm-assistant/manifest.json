@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Ritchey CRM Assistant",
-  "version": "0.7.0",
+  "version": "0.8.0",
   "description": "Reads VinSolutions follow-up tasks, checks the vehicle against live inventory, and drafts Manager Special price quotes for review. Never sends.",
   "permissions": ["sidePanel", "scripting", "storage", "tabs", "activeTab", "clipboardWrite"],
   "host_permissions": [
@@ -9,10 +9,6 @@
     "https://*.vinmanager.com/*",
     "https://*.coxautoinc.com/*",
     "https://www.ritcheybuickgmc.com/*",
-    "https://*.ritcheyautos.com/*",
-    "https://ritcheyautos.com/*"
-  ],
-  "optional_host_permissions": [
     "https://*.ritcheyautos.com/*",
     "https://ritcheyautos.com/*"
   ],

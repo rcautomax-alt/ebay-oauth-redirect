@@ -22,17 +22,21 @@ export const DEFAULT_SETTINGS = {
     { label: 'Tag agency fee', amount: 33 },
   ],
 
-  // ritcheybuickgmc.com now forwards to ritcheyautos.com (and drops the
-  // search), so searches go straight to ritcheyautos.com. Editable in Settings.
-  inventoryBase: 'https://www.ritcheyautos.com/searchused.aspx',
-  // Exact stock/VIN search (the kind VinSolutions' "View VDP" button uses).
-  inventorySearchAll: 'https://www.ritcheyautos.com/searchall.aspx',
+  // Inventory comes from VinSolutions → Inventory → Browse Inventory (your
+  // store's units, Web $ price, fresh trades included).
+  vinInventoryUrl: 'https://vinsolutions.app.coxautoinc.com/CarDashboard/ploader.aspx?TargetControl=Inventory/autosp.ascx&SelectedTab=t_Inventory',
+  // ritcheyautos.com search addresses. Blank = off: the new site doesn't use
+  // searchused.aspx / searchall.aspx. Pasting a vehicle-page link into "Add
+  // vehicle" still reads the website. Fill these in from Settings if we learn
+  // the site's search addresses.
+  inventoryBase: '',
+  inventorySearchAll: '',
   // Price labels on the inventory site, in priority order.
   priceLabels: ['SALE PRICE', 'Ritchey Price', 'Internet Price', 'Our Price'],
 
   // ritcheyautos.com lists every Ritchey store. You can only sell from these:
   // a vehicle whose listing mentions one of these words is offered…
-  storesAllowed: ['Daytona'],
+  storesAllowed: ['Daytona', 'Ritchey Cadillac', 'Subaru'],
   // …and one that mentions any of these is hidden. Listings that mention
   // neither are kept but tagged "location?".
   storesExcluded: ['Dublin', 'Melbourne'],

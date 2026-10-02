@@ -3,9 +3,9 @@ import { money, parseMoney, escapeHtml, todayKey, firstNameOf, nameKey } from '.
 import { computePricing } from '../lib/pricing.js';
 import { parseCustomer, parseTaskList, tasksFromDom, pickTask, detectSessionProblem, splitPanes } from '../lib/vin-parser.js';
 import { parseVehicleTitle, normalizeStock, isPlausibleVin } from '../lib/vehicle.js';
-import { probeFrame, probeTaskList, probeTaskView, clickTaskCustomer, captureFrame, extractVehicleCards } from '../lib/probes.js';
+import { probeFrame, probeTaskList, probeTaskView, probeInventoryGrid, runInventorySearch, clickTaskCustomer, captureFrame, extractVehicleCards } from '../lib/probes.js';
 import {
-  stockSearchUrl, modelSearchUrl, stockOrVinUrl, searchDropped, storeOf, keywordSearchUrl, vehicleLink, vehiclesFromExtraction, findVehicle, pickAlternatives,
+  stockSearchUrl, modelSearchUrl, stockOrVinUrl, searchDropped, storeOf, vehiclesFromInventoryRows, keywordSearchUrl, vehicleLink, vehiclesFromExtraction, findVehicle, pickAlternatives,
 } from '../lib/inventory.js';
 import { evaluate, canDraft, unacknowledged } from '../lib/rules.js';
 import { buildDrafts } from '../lib/templates.js';
@@ -47,9 +47,13 @@ const storage = {
     const { settings } = await chrome.storage.sync.get('settings');
     const merged = { ...DEFAULT_SETTINGS, ...(settings || {}) };
     // Saved settings from before the site moved still point at the old domain.
+    // Old guesses at the website's search pages (they don't exist on it).
     for (const k of ['inventoryBase', 'inventorySearchAll']) {
-      if (/ritcheybuickgmc\.com/i.test(merged[k] || '')) merged[k] = DEFAULT_SETTINGS[k];
+      if (/ritcheybuickgmc\.com|searchused\.aspx|searchall\.aspx/i.test(merged[k] || '')) merged[k] = DEFAULT_SETTINGS[k];
     }
+    // The site labels your store "Ritchey Cadillac"; older saved settings
+    // only knew "Daytona".
+    if (Array.isArray(merged.storesAllowed) && merged.storesAllowed.join() === 'Daytona') merged.storesAllowed = DEFAULT_SETTINGS.storesAllowed;
     return merged;
   },
   saveSettings: (s) => chrome.storage.sync.set({ settings: s }),
@@ -175,6 +179,7 @@ class RedirectError extends Error {}
 
 async function extractViaFetch(url) {
   const res = await fetch(url, { credentials: 'omit' });
+  if (res.status === 404) throw new RedirectError('that search page doesn’t exist on the site — update the search address in Settings');
   if (!res.ok) throw new Error(`HTTP ${res.status}`);
   const dropped = searchDropped(url, res.url);
   if (dropped) throw new RedirectError(dropped);
@@ -297,6 +302,78 @@ function withStore(v) {
   return { ...v, store: storeOf(v, state.settings.storesAllowed || [], state.settings.storesExcluded || []) };
 }
 
+// ---- VinSolutions inventory ---------------------------------------------
+function waitForTabLoad(tabId, timeoutMs = 15000) {
+  return new Promise((resolve) => {
+    let sawLoading = false;
+    const done = (id, info) => {
+      if (id !== tabId) return;
+      if (info.status === 'loading') sawLoading = true;
+      if (info.status === 'complete' && sawLoading) finish();
+    };
+    const finish = () => {
+      chrome.tabs.onUpdated.removeListener(done);
+      clearTimeout(timer);
+      resolve();
+    };
+    const timer = setTimeout(finish, timeoutMs);
+    chrome.tabs.onUpdated.addListener(done);
+  });
+}
+
+// Search Browse Inventory in a hidden tab (Pre-Owned – All), read the grid,
+// close the tab. Uses your logged-in VinSolutions session; changes nothing.
+async function searchVinInventory(term) {
+  const tab = await chrome.tabs.create({ url: state.settings.vinInventoryUrl, active: false });
+  try {
+    await waitForTabLoad(tab.id);
+    const [first] = await chrome.scripting.executeScript({ target: { tabId: tab.id }, func: probeInventoryGrid });
+    if (!first?.result) throw new Error("couldn't open VinSolutions Browse Inventory (logged out?)");
+    const navigated = waitForTabLoad(tab.id);
+    const [sub] = await chrome.scripting.executeScript({ target: { tabId: tab.id }, func: runInventorySearch, args: [term] });
+    if (!sub?.result) throw new Error("couldn't type into the Browse Inventory search box");
+    await navigated;
+    for (let i = 0; i < 6; i++) {
+      const [r] = await chrome.scripting.executeScript({ target: { tabId: tab.id }, func: probeInventoryGrid });
+      if (r?.result && String(r.result.search || '').toLowerCase() === term.toLowerCase()) {
+        return vehiclesFromInventoryRows(r.result.rows).map(withStore);
+      }
+      await sleep(800);
+    }
+    throw new Error('the inventory search didn’t finish');
+  } finally {
+    chrome.tabs.remove(tab.id).catch(() => {});
+  }
+}
+
+// Manual fallback: read the Browse Inventory grid you have open yourself.
+async function readInventoryScreen() {
+  await busy('Reading the Browse Inventory screen…', async () => {
+    try {
+      const tab = await vinTab();
+      const res = await chrome.scripting.executeScript({ target: { tabId: tab.id, allFrames: true }, func: probeInventoryGrid });
+      const grid = res.map((r) => r.result).find((g) => g && g.rows);
+      if (!grid) {
+        setStatus('Open VinSolutions → Inventory → Browse Inventory, search the model, then click this again.', 'error');
+        return;
+      }
+      const r = state.record || {};
+      const add = vehiclesFromInventoryRows(grid.rows)
+        .map(withStore)
+        .filter((v) => !(r.stock && normalizeStock(v.stock) === normalizeStock(r.stock)))
+        .filter((v) => !state.alternatives.some((a) => (a.vin && a.vin === v.vin) || (a.stock && a.stock === v.stock)))
+        .map((v) => ({ ...v, selected: false, manual: true, found: true, link: '' }));
+      state.alternatives.push(...add);
+      renderVehicleLists();
+      setStatus(`Added ${add.length} vehicle${add.length === 1 ? '' : 's'} from Browse Inventory${grid.search ? ` ("${grid.search}")` : ''} — tick the ones to offer.`, add.length ? 'ok' : 'error');
+    } catch (err) {
+      setStatus(`Couldn't read Browse Inventory: ${err.message}`, 'error');
+    }
+  });
+}
+
+const websiteSearchOn = () => !!(state.settings.inventoryBase || state.settings.inventorySearchAll);
+
 const blankVehicle = () => ({ title: '', stock: '', vin: null, miles: null, price: null, link: '', url: '', selected: true, manual: true });
 
 // Add a vehicle by stock #, VIN or website link. A fresh trade usually isn't
@@ -314,12 +391,21 @@ async function findVehicleByQuery(query) {
     } catch (err) {
       console.warn('link lookup failed', err);
     }
-    return { ...blankVehicle(), ...(found || {}), link: q, found: !!found };
+    return withStore({ ...blankVehicle(), ...(found || {}), link: q, found: !!found });
   }
   const isVin = isPlausibleVin(q);
   const key = isVin ? { vin: q.toUpperCase() } : { stock: q };
-  let hit = findVehicle(await loadResults(stockOrVinUrl(inventorySearchAll, q), tried), key);
-  if (!hit && !isVin) hit = findVehicle(await loadResults(stockSearchUrl(inventoryBase, q), tried), key);
+  // VinSolutions inventory first: it has fresh trades and the Web $ price.
+  let hit = null;
+  try {
+    hit = findVehicle(await searchVinInventory(q), key);
+  } catch (err) {
+    console.warn('VinSolutions inventory search failed', err);
+  }
+  if (hit) return { ...blankVehicle(), ...hit, link: '', found: true };
+  if (!websiteSearchOn()) return { ...blankVehicle(), ...(isVin ? { vin: q.toUpperCase() } : { stock: q }), found: false };
+  if (inventorySearchAll) hit = findVehicle(await loadResults(stockOrVinUrl(inventorySearchAll, q), tried), key);
+  if (!hit && !isVin && inventoryBase) hit = findVehicle(await loadResults(stockSearchUrl(inventoryBase, q), tried), key);
   if (hit) {
     const v = withStore({ ...blankVehicle(), ...hit, link: vehicleLink(hit, inventorySearchAll), found: true });
     if (v.store.status === 'excluded') v.selected = false; // other store: added unchecked
@@ -352,8 +438,8 @@ async function addVehicle(listKey, inputSel) {
       otherStore
         ? `${v.title || q} is listed at the ${v.store.where} store — added unchecked, since you can't sell it from here.`
         : v.found
-          ? `Added ${v.title || q} from the website${v.price ? ` (${money(v.price)})` : ''}. Check the details.`
-          : `${q} isn't on the website yet (fresh trade?). Fill in the details by hand.`,
+          ? `Added ${v.title || q}${v.source === 'vinsolutions' ? ' from VinSolutions inventory' : ' from the website'}${v.price ? ` (${money(v.price)})` : ''}.${v.link ? '' : ' Paste its website link if you want one in the message.'}`
+          : `${q} wasn't found in VinSolutions inventory${websiteSearchOn() ? ' or on the website' : ''}. Fill in the details by hand.`,
       v.found && !otherStore ? 'ok' : 'error',
     );
   }
@@ -576,6 +662,18 @@ async function workCustomer(c) {
 
 async function runLookup() {
   const r = state.record;
+  if (!websiteSearchOn()) {
+    // Price comes from VinSolutions; no website search to cross-check with.
+    state.inventory = null;
+    setStatus(
+      r.crmPrice ? `Asking price from VinSolutions: ${money(r.crmPrice)}.` : "No price on this lead in VinSolutions — type the asking price.",
+      r.crmPrice ? 'ok' : 'error',
+    );
+    renderInventory();
+    renderPricing();
+    reevaluate();
+    return;
+  }
   setStatus(`Checking the website for stock #${r.stock || '—'}…`);
   try {
     state.inventory = await lookupInventory({ stock: r.stock, vin: r.vin, model: r.model });
@@ -611,21 +709,35 @@ async function runAlternatives() {
     setStatus('Type a model to search for alternatives (or add a vehicle by hand below).', 'error');
     return;
   }
-  setStatus(`Searching the website for other ${r.model}s…`);
+  setStatus(`Searching VinSolutions inventory for other ${r.model}s…`);
   try {
     const { inventoryBase, inventorySearchAll } = state.settings;
     const tried = [...(state.inventory?.tried || [])];
-    let results = state.inventory?.modelResults;
-    // Always run the model search here — even if the sold unit itself still
-    // shows on the website (it can lag a day), which skips it in the lookup.
-    if (!results || !results.length) {
-      results = await loadResults(modelSearchUrl(inventoryBase, r.model), tried);
-      if (!results.length && inventorySearchAll) {
-        const words = (r.vehicleTitle || r.model).replace(/^\d{4}\s+/, '').split(/\s+/).slice(0, 2).join(' ');
-        results = await loadResults(keywordSearchUrl(inventorySearchAll, words), tried);
-      }
-      state.inventory = { found: false, vehicle: null, source: null, ...(state.inventory || {}), modelResults: results, tried };
+    let results = [];
+    // 1. VinSolutions Browse Inventory (your store, fresh trades included).
+    const make = parseVehicleTitle(r.vehicleTitle || '')?.make;
+    try {
+      const inv = (await searchVinInventory(r.model)).filter((v) => !make || !v.make || v.make.toLowerCase() === make.toLowerCase());
+      tried.push({ url: state.settings.vinInventoryUrl, label: `VinSolutions inventory: "${r.model}"`, count: inv.length });
+      results = inv;
+    } catch (err) {
+      tried.push({ url: state.settings.vinInventoryUrl, label: `VinSolutions inventory: "${r.model}"`, count: 0, note: `${err.message} — try "Read Inventory screen"` });
     }
+    // 2. Website model search, only if its search address is set in Settings.
+    if (websiteSearchOn() && inventoryBase) {
+      let site = await loadResults(modelSearchUrl(inventoryBase, r.model), tried);
+      if (!site.length && inventorySearchAll) {
+        const words = (r.vehicleTitle || r.model).replace(/^\d{4}\s+/, '').split(/\s+/).slice(0, 2).join(' ');
+        site = await loadResults(keywordSearchUrl(inventorySearchAll, words), tried);
+      }
+      // Same unit on both: keep the VinSolutions row, borrow the website link.
+      for (const w of site) {
+        const same = results.find((v) => (v.vin && v.vin === w.vin) || (v.stock && w.stock && normalizeStock(v.stock) === normalizeStock(w.stock)));
+        if (same) same.url = same.url || w.url;
+        else results.push(w);
+      }
+    }
+    state.inventory = { found: false, vehicle: null, source: null, ...(state.inventory || {}), modelResults: results, tried };
     const manual = state.alternatives.filter((a) => a.manual);
     // The group site lists every Ritchey store; only offer the ones you sell from.
     const tagged = results.map(withStore);
@@ -641,6 +753,11 @@ async function runAlternatives() {
       window: Number(state.settings.altPriceWindow) || 5000,
       limit: state.settings.altLimit || 3,
     }).map((a) => ({ ...a, link: vehicleLink(a, inventorySearchAll), selected: true }));
+    // A rerun shouldn't duplicate what's already listed.
+    for (const m of manual) {
+      const i = picked.findIndex((p) => (p.vin && p.vin === m.vin) || (p.stock && m.stock && normalizeStock(p.stock) === normalizeStock(m.stock)));
+      if (i >= 0) picked.splice(i, 1);
+    }
     state.alternatives = [...manual, ...picked];
     setStatus(
       picked.length
@@ -954,14 +1071,14 @@ function renderInventory() {
   const v = inv.vehicle;
   const tried = (inv.tried || [])
     .map((t) => (typeof t === 'string' ? { url: t, count: null } : t))
-    .map((t) => `<a href="${escapeHtml(t.url)}" target="_blank">${escapeHtml(t.url.replace(/^https?:\/\/[^/]+/, ''))}</a>${t.note ? ` — <span class="warn">⚠️ ${escapeHtml(t.note)}</span>` : t.count === null ? '' : ` — ${t.count} vehicle${t.count === 1 ? '' : 's'}`}`)
+    .map((t) => `<a href="${escapeHtml(t.url)}" target="_blank">${escapeHtml(t.label || t.url.replace(/^https?:\/\/[^/]+/, ''))}</a>${t.note ? ` — <span class="warn">⚠️ ${escapeHtml(t.note)}</span>` : t.count === null ? '' : ` — ${t.count} vehicle${t.count === 1 ? '' : 's'}`}`)
     .join('<br>');
   el.innerHTML = crmLine + (v
     ? `<p class="ok">✓ Website: ${escapeHtml(v.title || 'Vehicle')} — Stock # ${escapeHtml(v.stock || '?')} — SALE PRICE <b>${money(v.price) || 'not readable'}</b></p>
        ${v.store?.status === 'excluded' ? `<p class="warn">⚠️ Listed at the ${escapeHtml(v.store.where)} store, not yours.</p>` : ''}
        ${v.url ? `<p><a href="${escapeHtml(v.url)}" target="_blank">Open VDP</a></p>` : ''}
        <p class="hint">Checked: ${tried}</p>`
-    : `<p class="hint warn">Vehicle of interest not found on the website${state.record?.crmStatus === 'sold' ? ' (expected — it sold)' : ''}.</p><p class="hint">Checked: ${tried || '—'}</p>`);
+    : `${websiteSearchOn() && !inv.modelResults ? `<p class="hint warn">Vehicle of interest not found on the website${state.record?.crmStatus === 'sold' ? ' (expected — it sold)' : ''}.</p>` : ''}<p class="hint">Checked: ${tried || '—'}</p>`);
 }
 
 function renderPricing() {
@@ -1252,6 +1369,7 @@ function wire() {
     $(id).addEventListener('change', onVehicleEdit);
     $(id).addEventListener('click', onVehicleClick);
   }
+  $('#btn-inv-screen').onclick = readInventoryScreen;
   $('#btn-alt-add').onclick = () => busy('Looking up…', () => addVehicle('alternatives', '#alt-add-query'));
   $('#btn-fs-veh-add').onclick = () => busy('Looking up…', () => addVehicle('fsVehicles', '#fs-veh-query'));
   $('#btn-fs-from-alts').onclick = () => {

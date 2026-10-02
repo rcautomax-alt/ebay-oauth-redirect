@@ -417,3 +417,37 @@ test('a sold notice still wins over lead data saying active', () => {
   }];
   assert.equal(parseCustomer(frames).voi.status, 'sold');
 });
+
+// Text shaped like a ritcheyautos.com vehicle page (2024 Trailblazer capture).
+const RITCHEY_VDP = [
+  'BACK TO INVENTORY', 'Vehicle Viewed 14 times', 'VIEW ALL',
+  '2024 Chevrolet Trailblazer RS FWD CVT', 'Location: Ritchey Cadillac', 'VIN: KL79MTSL2RB125987', 'STOCK: 210694A', 'MILEAGE: 35,612 MILES',
+  'Finance', 'Cash', '$365', 'Per month for 72 months+tax', 'at 6.71% APR', '$2,248.00 down payment',
+  'Market Price', '$24,400', 'Ritchey Autos Discount', '-$1,912', 'Private Tag Agency Fee', '+$33', 'Electronic Filling Fee', '+$299',
+  'Documentation Fee', '+$999', 'Ritchey Autos Price w/ Fees', '$23,819', 'THIS CHEVROLET TRAILBLAZER', '$22,488',
+].join(' ');
+
+test('ritcheyautos.com vehicle page: price = Market Price − Ritchey Autos Discount; stock, VIN, miles, store', async () => {
+  const { storeOf } = await import('../src/lib/inventory.js');
+  const vs = vehiclesFromExtraction({ cards: [], jsonld: [], bodyText: RITCHEY_VDP }, LABELS, 'https://www.ritcheyautos.com/viewdetails/used/kl79mtsl2rb125987/x');
+  assert.equal(vs.length, 1);
+  const v = vs[0];
+  assert.equal(v.price, 22488);
+  assert.equal(v.stock, '210694A');
+  assert.equal(v.vin, 'KL79MTSL2RB125987');
+  assert.equal(v.miles, 35612);
+  assert.equal(v.title, '2024 Chevrolet Trailblazer RS FWD CVT');
+  assert.equal(storeOf(v, ['Daytona', 'Ritchey Cadillac', 'Subaru'], ['Dublin', 'Melbourne']).status, 'allowed');
+});
+
+test('VinSolutions Browse Inventory rows -> vehicles (Web $ price, 2-digit year, your store)', async () => {
+  const { vehiclesFromInventoryRows, storeOf } = await import('../src/lib/inventory.js');
+  const [v] = vehiclesFromInventoryRows([
+    { stock: '210694A', year: '24', make: 'Chevrolet', model: 'Trailblazer', trim: 'RS', vin: 'KL79MTSL2RB125987', miles: '35,612', age: '87', web: '$22,488', lot: '$22,488' },
+  ]);
+  assert.equal(v.title, '2024 Chevrolet Trailblazer RS');
+  assert.equal(v.price, 22488);
+  assert.equal(v.miles, 35612);
+  assert.equal(v.stock, '210694A');
+  assert.equal(storeOf(v, ['Daytona', 'Ritchey Cadillac', 'Subaru'], ['Dublin', 'Melbourne']).status, 'allowed');
+});

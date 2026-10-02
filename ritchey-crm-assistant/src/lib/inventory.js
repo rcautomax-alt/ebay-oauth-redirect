@@ -10,6 +10,32 @@ export function stockOrVinUrl(searchAllBase, value) {
   return `${searchAllBase}?stockOrVIN=${v}&q=${v}`;
 }
 
+// Rows from VinSolutions' Browse Inventory grid -> vehicles. Web $ is the
+// website price (falls back to Lot $). These are your store's units.
+export function vehiclesFromInventoryRows(rows) {
+  return (rows || [])
+    .map((r) => {
+      let year = parseInt(r.year, 10);
+      if (year && year < 100) year += 2000;
+      const title = [year || '', r.make, r.model, r.trim].filter(Boolean).join(' ').trim();
+      return {
+        title: title || null,
+        year: year || null,
+        make: r.make || null,
+        model: r.model || null,
+        stock: isPlausibleStock(r.stock) ? r.stock.trim() : null,
+        vin: isPlausibleVin(r.vin) ? r.vin.trim().toUpperCase() : null,
+        price: parseMoney(r.web) || parseMoney(r.lot) || null,
+        miles: parseMoney(r.miles),
+        age: parseInt(r.age, 10) || null,
+        url: '',
+        location: 'Ritchey Cadillac (VinSolutions inventory)',
+        source: 'vinsolutions',
+      };
+    })
+    .filter((v) => v.stock || v.vin);
+}
+
 // A search that lands on a page without its query (e.g. the old domain
 // forwarding to the new homepage) returns a message; otherwise null.
 export function searchDropped(askedUrl, landedUrl) {
@@ -37,6 +63,15 @@ function escapeRe(s) {
 // under $1,000 are ignored so a "$399/mo" payment never passes for a price.
 export function parsePrice(text, labels) {
   if (!text) return null;
+  // ritcheyautos.com: "Market Price $24,400 · Ritchey Autos Discount -$1,912
+  // · fees · Price w/ Fees $23,819" — the selling price is market − discount
+  // (it matches VinSolutions' Internet Price).
+  const market = text.match(/Market Price\s*:?\s*\$\s*([\d,]+)/i);
+  if (market) {
+    const m = parseMoney(market[1]);
+    const disc = text.match(/Discount\s*:?\s*[-–]\s*\$\s*([\d,]+)/i);
+    if (m && m >= 1000) return m - (disc ? parseMoney(disc[1]) || 0 : 0);
+  }
   for (const label of labels) {
     const re = new RegExp(`${escapeRe(label)}\\s*:?\\s*\\$\\s*([\\d,]+)`, 'gi');
     let m;
@@ -216,6 +251,7 @@ export function keywordSearchUrl(searchAllBase, words) {
 // stock/VIN search that VinSolutions' "View VDP" button uses.
 export function vehicleLink(v, searchAllBase) {
   if (v.url) return v.url;
+  if (v.source === 'vinsolutions') return ''; // no public page known; paste one if wanted
   const key = v.vin || v.stock;
   return key && searchAllBase ? stockOrVinUrl(searchAllBase, key) : '';
 }

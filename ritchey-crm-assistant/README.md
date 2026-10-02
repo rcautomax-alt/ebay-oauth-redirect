@@ -1,4 +1,4 @@
-# Ritchey CRM Assistant (v0.7)
+# Ritchey CRM Assistant (v0.8)
 
 A Chrome extension that sits in a side panel next to VinSolutions. It reads the customer you have open, checks the vehicle of interest against the website (ritcheyautos.com), and drafts the **"\*10 Day: MGR | Send Out Price"** text and email for you to review.
 
@@ -50,7 +50,7 @@ A Chrome extension that sits in a side panel next to VinSolutions. It reads the 
 2. Click **Copy & open Claude ↗**. Claude opens in a new tab with the request already typed in; hit send. (The request is also on your clipboard, so if the box comes up empty, just paste.) **Copy only** copies without opening a tab. Either button turns green with "✓ Copied!", or red if Chrome blocked it; then select the request in the preview and copy it by hand. The request includes the customer's first name, vehicle, stock #, your pricing (if you tick the box), vehicles to mention with their links, and recent notes with phone numbers and emails stripped out. Their full name, phone and email are never included.
 3. Paste Claude's reply into the box and click **Use these drafts**. They land in the same Text/Email boxes, so the copy buttons and **Save to today's queue** work the same way. Freestyle entries show ✍️ in the queue.
 
-**Sold or not-real-inventory VOI:** no price quote. The panel always runs the model search, even when the sold unit still shows on the website, and falls back to a keyword search. The inventory box shows how many vehicles each search returned. Every alternative is editable, and each one's **link** goes into the email, or into the text when you offer just one. **Only your stores are offered.** ritcheyautos.com lists every Ritchey store, so listings that mention Dublin or Melbourne are hidden (the status line says how many), Daytona listings (yours and Subaru of Daytona) are tagged 📍 Daytona, and listings that don't say where they are get tagged "location?". Both store lists are editable in Settings. **Add vehicle** takes a stock #, VIN or website link. A fresh trade that isn't on the website yet comes up as a blank row to fill in by hand. Otherwise: It searches the same model on the website, pre-checks up to 3 units closest in price (±$5,000 window), and drafts a "that one sold, here are a few similar options" text and email. Uncheck any you don't want offered.
+**Sold or not-real-inventory VOI:** no price quote. Alternatives come from **VinSolutions → Inventory → Browse Inventory**: the panel opens it in a hidden tab, searches the model with *Pre-Owned – All*, reads the grid (stock #, miles, **Web $**), and closes the tab. That covers your store's units, including fresh trades that aren't on the website yet. If the hidden search ever fails, open Browse Inventory yourself, search the model, and click **Read Inventory screen**. Every alternative is editable. **Add vehicle** takes a stock # or VIN (looked up in VinSolutions inventory) or a **ritcheyautos.com vehicle-page link** (title, miles, stock and price are read from the page, and the link goes into the message). Units at Dublin or Melbourne are hidden; Subaru of Daytona units aren't in your VinSolutions inventory, so add those by link. Each alternative's link goes into the email, or into the text when you offer just one.
 
 **Spanish:** switch Language to Spanish before generating drafts.
 
@@ -60,6 +60,7 @@ A Chrome extension that sits in a side panel next to VinSolutions. It reads the 
 
 ## Troubleshooting
 
+- **Website search addresses:** ritcheyautos.com doesn't use the old `searchused.aspx` / `searchall.aspx` pages, so website searching is off by default (Settings fields blank). Prices come from VinSolutions and alternatives from Browse Inventory, so you don't need it.
 - **Price / alternatives lookups fail, and `chrome://extensions` → Errors shows "blocked by CORS policy":** Chrome is withholding the extension's access to ritcheyautos.com. Click **Allow website access** in the red banner at the top of the panel, or go to `chrome://extensions` → **Details** → **Site access** and choose **On all sites** (or add ritcheyautos.com under *On specific sites*). VinSolutions keeps working either way, because clicking the icon grants the tab you're on.
 - **Old errors stick around** on the extension's Errors page until you click **Clear all**. Clear them after an update, so anything that shows up afterward is new.
 
