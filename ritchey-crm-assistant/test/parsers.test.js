@@ -451,3 +451,9 @@ test('VinSolutions Browse Inventory rows -> vehicles (Web $ price, 2-digit year,
   assert.equal(v.stock, '210694A');
   assert.equal(storeOf(v, ['Daytona', 'Ritchey Cadillac', 'Subaru'], ['Dublin', 'Melbourne']).status, 'allowed');
 });
+
+test('lead source is read from Lead Info (not the Status / Source grid header)', () => {
+  const frames = [{ name: '', url: 'https://x/CarDashboard/Pages/rims2.aspx', tables: [],
+    text: 'Status\t\tBuyer/Co-Buyer\t\tCreated\t\tSource\t\tVehicle\nLead Info\nStatus:\tWaiting for Prospect Response\nManager:\tRick Clemons\nSource:\tAutoweb (Internet)\nContacted:\tNo' }];
+  assert.equal(parseCustomer(frames).leadSource, 'Autoweb (Internet)');
+});

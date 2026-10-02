@@ -344,6 +344,7 @@ export function parseCustomer(frames, map = VIN_MAP) {
     email: firstMatch(text, new RegExp(`(${f.email.source})`, 'i')),
     phone: firstMatch(text, new RegExp(`(${f.phone.source})`)),
     manager: firstMatch(text, f.manager),
+    leadSource: firstMatch(text, /(?:^|[\n\t])[ \t]*Source\s*:[ \t]*([^\n\r\t]+)/i),
     assignedTo: task?.assignedTo || null,
     tasks,
     task: { raw: task ? task.description : null, type: task ? task.type : 'unknown', isPriceQuote: !!task?.isPriceQuote },

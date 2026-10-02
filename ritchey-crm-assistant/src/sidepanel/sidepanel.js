@@ -12,7 +12,7 @@ import { buildDrafts } from '../lib/templates.js';
 import { sharedVoi, upsert, toCsv } from '../lib/queue.js';
 import { withRetry, sleep, SessionError } from '../lib/retry.js';
 import { scrubPii } from '../lib/scrub.js';
-import { STARTERS, buildFreestylePrompt, parseClaudeReply, emailTextToHtml } from '../lib/freestyle.js';
+import { STARTERS, buildFreestylePrompt, bestDealInstruction, parseClaudeReply, emailTextToHtml } from '../lib/freestyle.js';
 
 const $ = (sel) => document.querySelector(sel);
 
@@ -526,6 +526,7 @@ function recordFromParsed(p) {
     taskType: p.task.type,
     manager: p.manager || '',
     assignedTo: p.assignedTo || '',
+    leadSource: p.leadSource || '',
     vehicleTitle: p.voi.title || '',
     model: p.voi.model || '',
     stock: p.voi.stock || '',
@@ -570,6 +571,9 @@ async function readCustomer({ expectName = null } = {}) {
       $('#fs-instruction').value = '';
       $('#fs-reply').value = '';
       $('#fs-prompt').textContent = '';
+      $('#fs-deal-discount').value = '';
+      $('#fs-deal-through').value = '';
+      $('#fs-deal-on').checked = false;
       renderVehicleLists(); // clear the old customer's vehicle rows off screen
       // VinSolutions' own Internet Price is the asking price; the website
       // lookup below only cross-checks it.
@@ -787,6 +791,7 @@ function currentEvaluation() {
     customerName: r.customerName,
     manager: r.manager,
     assignedTo: r.assignedTo,
+    leadSource: r.leadSource,
     task: { type: r.taskType, template: state.pickedTask?.template || null, isPriceQuote: state.pickedTask ? !!state.pickedTask.isPriceQuote : null },
     voi: { stock: r.stock, vin: r.vin, status: r.crmStatus, crmPrice: r.crmPrice ? Number(r.crmPrice) : null },
     notes: { count: r.notesCount === '' || r.notesCount === null ? null : Number(r.notesCount) },
@@ -853,7 +858,55 @@ function freestylePrompt() {
     pricing: $('#fs-pricing').checked ? state.pricing : null,
     notesExcerpt: state.notesExcerpt,
     vehicles: state.fsVehicles.filter((v) => v.selected !== false),
+    deal: $('#fs-deal-on').checked ? { goodThrough: $('#fs-deal-through').value.trim() } : null,
   });
+}
+
+// 🏷️ Best-deal message: VinSolutions price − your discount, framed as
+// special online pricing, then straight into Claude.
+function dealPricing() {
+  const asking = state.asking || state.record?.crmPrice || null;
+  const discount = parseMoney($('#fs-deal-discount').value);
+  if (!asking || discount === null) return null;
+  try {
+    return computePricing({ asking, discount, fees: state.settings.fees });
+  } catch {
+    return null;
+  }
+}
+
+function renderDealBox() {
+  const src = state.record?.leadSource || '';
+  const hot = /autoweb/i.test(src);
+  $('#fs-deal').classList.toggle('hot', hot);
+  $('#fs-source').hidden = !src;
+  $('#fs-source').textContent = src ? `Source: ${src}` : '';
+  const asking = state.asking || state.record?.crmPrice;
+  const p = dealPricing();
+  $('#fs-deal-numbers').textContent = p
+    ? `${money(p.asking)} − ${money(p.discount)} = ${money(p.special)} (${money(p.withFees)} with fees)`
+    : asking
+      ? `Price ${money(asking)} — enter your discount.`
+      : 'No price yet — read the customer (VinSolutions price) or type one in Pricing.';
+}
+
+async function buildBestDeal(e) {
+  const btn = e?.currentTarget;
+  const p = dealPricing();
+  if (!p) {
+    flashButton(btn, false, state.asking || state.record?.crmPrice ? 'Enter a discount first' : 'Need a price first');
+    $('#fs-deal-discount').focus();
+    return;
+  }
+  // Keep the panel's pricing in step so the drafts and the queue match.
+  state.asking = p.asking;
+  state.discount = p.discount;
+  state.pricing = p;
+  renderPricing();
+  $('#fs-instruction').value = bestDealInstruction({ goodThrough: $('#fs-deal-through').value });
+  $('#fs-pricing').checked = true;
+  $('#fs-deal-on').checked = true;
+  await copyFreestyle({ currentTarget: btn }, { openClaude: true });
 }
 
 // Copies the request and (openClaude) opens Claude with it already typed in.
@@ -1041,6 +1094,9 @@ function renderCustomer() {
     input.value = v === null || v === undefined ? '' : v;
   }
   $('#view-badge').textContent = state.view;
+  renderDealBox();
+  // Autoweb-style leads: open Freestyle so the best-deal box is right there.
+  if (/autoweb/i.test(state.record.leadSource || '')) $('#freestyle-section').open = true;
   $('#notes-excerpt').textContent = state.notesExcerpt || '(nothing found)';
   $('#lang').value = state.lang;
 }
@@ -1088,6 +1144,7 @@ function renderPricing() {
 }
 
 function updatePricingOut() {
+  renderDealBox();
   const out = $('#pricing-out');
   try {
     const p = computePricing({ asking: state.asking, discount: state.discount, fees: state.settings.fees });
@@ -1268,6 +1325,12 @@ function wire() {
   $('#btn-save').onclick = saveToQueue;
   $('#btn-site-access').onclick = requestSiteAccess;
   $('#btn-fs-copy').onclick = (e) => copyFreestyle(e);
+  $('#btn-fs-deal').onclick = buildBestDeal;
+  $('#fs-deal-discount').oninput = renderDealBox;
+  $('#fs-deal-discount').onblur = (e) => {
+    const n = parseMoney(e.target.value);
+    e.target.value = n === null ? '' : money(n);
+  };
   $('#btn-fs-open').onclick = (e) => copyFreestyle(e, { openClaude: true });
   $('#btn-fs-use').onclick = useFreestyleReply;
   $('#fs-starters').innerHTML = STARTERS.map((s, i) => `<button data-starter="${i}">${escapeHtml(s.label)}</button>`).join('');
@@ -1445,6 +1508,7 @@ async function boot() {
   renderQueue();
   renderTasks();
   renderVehicleLists();
+  renderDealBox();
   if (state.record) {
     renderCustomer();
     renderInventory();

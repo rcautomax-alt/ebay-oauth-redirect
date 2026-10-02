@@ -72,3 +72,20 @@ test('vehicles to mention carry their links, and my instructions win', () => {
   assert.ok(p.includes('that vehicle has SOLD'));
   assert.ok(p.includes('my instructions above win'));
 });
+
+test('best-deal (Autoweb) request: savings laid out, special-for-you framing, no invented deadline', async () => {
+  const { bestDealInstruction } = await import('../src/lib/freestyle.js');
+  const pricing = computePricing({ asking: 11488, discount: 1000, fees: DEFAULT_SETTINGS.fees });
+  const rec = { ...record, vehicleTitle: '2017 Ford Escape SE', stock: '162763A', leadSource: 'Autoweb (Internet)' };
+  const p = buildFreestylePrompt({ instruction: bestDealInstruction(), record: rec, settings: DEFAULT_SETTINGS, pricing, deal: { goodThrough: '' } });
+  assert.ok(p.includes('Lead source: Autoweb (Internet)'));
+  assert.ok(p.includes('DEAL CONTEXT'));
+  assert.ok(p.includes('price $11,488, my discount -$1,000, their special price $10,488 ($11,819 with fees)'));
+  assert.ok(p.includes('Do NOT invent a deadline'));
+  assert.ok(p.includes('special internet pricing'));
+  const withDate = buildFreestylePrompt({ instruction: bestDealInstruction({ goodThrough: 'Saturday' }), record: rec, settings: DEFAULT_SETTINGS, pricing, deal: { goodThrough: 'Saturday' } });
+  assert.ok(withDate.includes('good through Saturday'));
+  assert.ok(!withDate.includes('Do NOT invent a deadline'));
+  // Plain freestyle has no deal framing.
+  assert.ok(!buildFreestylePrompt({ instruction: 'hi', record: rec, settings: DEFAULT_SETTINGS }).includes('DEAL CONTEXT'));
+});

@@ -1,4 +1,4 @@
-# Ritchey CRM Assistant (v0.8)
+# Ritchey CRM Assistant (v0.9)
 
 A Chrome extension that sits in a side panel next to VinSolutions. It reads the customer you have open, checks the vehicle of interest against the website (ritcheyautos.com), and drafts the **"\*10 Day: MGR | Send Out Price"** text and email for you to review.
 
@@ -43,6 +43,13 @@ A Chrome extension that sits in a side panel next to VinSolutions. It reads the 
 5. **Generate drafts.** You get the text and email (bold pricing block, no signature since VinSolutions adds it). Both are editable in place.
    - **Copy email (keeps bold)** puts formatted text on the clipboard, so bold survives pasting into the VinSolutions editor.
 6. **Save to today's queue.** **Export CSV** gives you the day's list for your spreadsheet.
+
+**🏷️ Best-deal message (Autoweb-style leads):** these customers clicked an online "get the best price" link, so they expect a deal. When a lead's VinSolutions **Source** says Autoweb, the panel flags it and opens ✍️ Freestyle with the 🏷️ box highlighted.
+1. Type your **Discount $**. The box shows the math using the VinSolutions price, e.g. $11,488 − $1,000 = $10,488 ($11,819 with fees).
+2. Optionally fill in **Good through** (e.g. "Saturday").
+3. Click **Build best-deal message & open Claude**. Claude gets the numbers and is told to lead with the savings, lay out price, discount and special price (bold in the email), and make it feel like special pricing for an online shopper. It's told never to invent deadlines, rebates or conditions, and to mention "good through" only if you filled it in. Paste the reply back as usual.
+
+It works on any lead, not just Autoweb. The **Best-deal framing** checkbox turns the deal instructions on or off for a regular freestyle request.
 
 **✍️ Freestyle messages** are for anything outside the templates: a trade bump, a bad phone number, a price drop. No API key needed.
 1. Open **✍️ Freestyle message**, type what you want to say (or click a starter like *Trade bump*, *Bad phone #* or *Similar one came in*), and pick Text/Email and Language as usual.

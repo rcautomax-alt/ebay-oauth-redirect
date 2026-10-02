@@ -132,3 +132,8 @@ test('VinSolutions price: website miss is a heads-up, not a stop; price mismatch
   const diff = evaluate(rec, { settings, inventory: { found: true, vehicle: { price: 11995 } } });
   assert.ok(diff.flags.find((f) => f.code === 'PRICE_MISMATCH').message.includes('$11,488'));
 });
+
+test('Autoweb leads get a best-deal nudge', () => {
+  const r = evaluate({ ...base(), leadSource: 'Autoweb (Internet)' }, { settings });
+  assert.ok(r.flags.find((f) => f.code === 'BEST_DEAL_LEAD').message.includes('best-deal'));
+});

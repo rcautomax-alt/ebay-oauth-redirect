@@ -105,3 +105,5 @@ button.x { padding: 2px 6px; }
 button.flash-ok { background: var(--ok); border-color: var(--ok); color: #fff; }
 button.flash-bad { background: var(--block); border-color: var(--block); color: #fff; }
 #fs-prompt { user-select: all; }
+.deal-box { border: 1px solid var(--line); border-radius: 6px; padding: 8px; margin: 6px 0 10px; background: var(--panel); }
+.deal-box.hot { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent) inset; }

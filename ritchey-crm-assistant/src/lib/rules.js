@@ -110,6 +110,11 @@ export function evaluate(record, ctx) {
     }
   }
 
+  // Lead source: Autoweb-style "best price" leads get the 🏷️ best-deal message.
+  if (/autoweb/i.test(record.leadSource || '')) {
+    add('info', 'BEST_DEAL_LEAD', `🏷️ ${record.leadSource} lead — they clicked for the best deal. Try the best-deal message in ✍️ Freestyle.`);
+  }
+
   // 6. Prioritization + tone.
   if (sharedWith.length) {
     add('info', 'SHARED_VOI', `🔥 Shared VOI — also the vehicle of interest for: ${sharedWith.join(', ')}.`);

@@ -21,6 +21,18 @@ function noteLines(excerpt, fullName) {
   return cleaned.length > 1500 ? `${cleaned.slice(0, 1500)}…` : cleaned;
 }
 
+// The default ask for the 🏷️ best-deal button (Autoweb-style leads).
+export function bestDealInstruction({ goodThrough = '' } = {}) {
+  return [
+    'Send them our special internet pricing on this vehicle.',
+    'Show the savings clearly (price, my discount, their special price) and make them feel they are getting a special deal set aside for them as an online shopper.',
+    goodThrough ? `This pricing is good through ${goodThrough.trim()}.` : '',
+    'Invite them in to see it and lock it in.',
+  ]
+    .filter(Boolean)
+    .join(' ');
+}
+
 function vehicleLine(v) {
   return [
     v.title || 'Vehicle',
@@ -34,7 +46,7 @@ function vehicleLine(v) {
     .join(' | ');
 }
 
-export function buildFreestylePrompt({ instruction, record, settings, lang = 'en', channels = { sms: true, email: true }, pricing = null, notesExcerpt = '', vehicles = [] }) {
+export function buildFreestylePrompt({ instruction, record, settings, lang = 'en', channels = { sms: true, email: true }, pricing = null, notesExcerpt = '', vehicles = [], deal = null }) {
   const r = record || {};
   const s = settings;
   const want = [channels.sms && 'a text message', channels.email && 'an email'].filter(Boolean).join(' and ') || 'a text message and an email';
@@ -46,7 +58,25 @@ export function buildFreestylePrompt({ instruction, record, settings, lang = 'en
     pricing &&
       `Pricing I've worked up: Asking ${money(pricing.asking)}, Manager Discount -${money(pricing.discount)}, Manager Special Price ${money(pricing.special)}, Price with Fees ${money(pricing.withFees)}`,
     r.notesCount !== null && r.notesCount !== undefined && r.notesCount !== '' && `Prior notes/history entries: ${r.notesCount}`,
+    r.leadSource && `Lead source: ${r.leadSource}`,
   ].filter(Boolean);
+
+  // Best-deal framing: they clicked an online "get the best price" offer.
+  const dealLines = deal
+    ? [
+        '',
+        'DEAL CONTEXT:',
+        `- This customer came in through ${r.leadSource || 'an online lead service (e.g. Autoweb)'}: they clicked a link to get the best deal, so they are expecting a real offer. Lead with the savings.`,
+        pricing
+          ? `- Show the numbers plainly: price ${money(pricing.asking)}, my discount -${money(pricing.discount)}, their special price ${money(pricing.special)} (${money(pricing.withFees)} with fees). In the email, put these on their own lines with **bold** amounts.`
+          : '- I have not set the numbers yet: leave clear blanks like [$____] for the price, discount and special price.',
+        '- Make it feel like special pricing reserved for them as an online shopper — warm and confident, not pushy or salesy.',
+        deal.goodThrough
+          ? `- The pricing is good through ${deal.goodThrough}; say so once.`
+          : '- Do NOT invent a deadline, expiration date, rebate, incentive or condition.',
+        '- In the text, mention the special price (not every line item) and ask when they can come see it.',
+      ]
+    : [];
 
   const notes = noteLines(notesExcerpt, r.customerName);
 
@@ -58,6 +88,7 @@ export function buildFreestylePrompt({ instruction, record, settings, lang = 'en
     '',
     'CUSTOMER CONTEXT:',
     ...context.map((c) => `- ${c}`),
+    ...dealLines,
     ...(vehicles.length
       ? ['', 'VEHICLE(S) TO MENTION (include each link exactly as written, in both the text and the email):', ...vehicles.map((v) => `- ${vehicleLine(v)}`)]
       : []),

@@ -116,6 +116,18 @@
   <details id="freestyle-section">
     <summary>✍️ Freestyle message</summary>
     <p class="hint">Say it your way (trade bump, bad number, anything). Uses the customer read above if there is one, plus the Text/Email and Language choices.</p>
+    <div id="fs-deal" class="deal-box">
+      <div><b>🏷️ Best-deal message</b> <span class="hint">for Autoweb-style leads that clicked for the best price</span> <span id="fs-source" class="tag" hidden></span></div>
+      <div class="grid">
+        <label>Discount $ <input id="fs-deal-discount" inputmode="numeric" placeholder="$"></label>
+        <label>Good through (optional) <input id="fs-deal-through" placeholder="e.g. Saturday"></label>
+      </div>
+      <div id="fs-deal-numbers" class="hint"></div>
+      <div class="row">
+        <button id="btn-fs-deal" class="primary">Build best-deal message &amp; open Claude ↗</button>
+        <label class="check"><input type="checkbox" id="fs-deal-on"> Best-deal framing</label>
+      </div>
+    </div>
     <div id="fs-starters" class="row"></div>
     <textarea id="fs-instruction" rows="4" placeholder="e.g. I'm willing to give $1,500 more for her trade. Keep it casual."></textarea>
     <label class="check"><input type="checkbox" id="fs-pricing"> Include the pricing I've worked up</label>
