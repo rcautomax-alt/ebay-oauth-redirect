@@ -1,0 +1,117 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>vAuto Price Adjuster</title>
+  <link rel="stylesheet" href="app.css">
+</head>
+<body>
+  <header class="header">
+    <div>
+      <h1>vAuto Price Adjuster</h1>
+      <p>Drop in the vAuto Pricing export, then review, approve, and apply</p>
+    </div>
+    <div id="vautoStatus" class="pill">vAuto tab: checking…</div>
+  </header>
+
+  <nav class="tabs">
+    <button class="tab active" data-tab="plan">Plan</button>
+    <button class="tab" data-tab="wholesale">Wholesale Report <span id="wsCount" class="count"></span></button>
+    <button class="tab" data-tab="history">Change Log &amp; Sync Check</button>
+    <button class="tab" data-tab="settings">Settings</button>
+  </nav>
+
+  <!-- PLAN -->
+  <section id="tab-plan" class="panel active">
+    <div id="drop" class="drop">
+      <strong>Drop the vAuto export here</strong> (.xls / .xlsx / .csv) or
+      <label class="link">browse<input type="file" id="file" accept=".xls,.xlsx,.csv" hidden></label>
+      <div id="fileInfo" class="muted"></div>
+    </div>
+
+    <div id="planArea" hidden>
+      <div class="summary" id="summary"></div>
+
+      <div class="toolbar">
+        <input id="search" type="search" placeholder="Filter by vehicle or stock #">
+        <label><input type="checkbox" id="checkAll" checked> Select all ready</label>
+        <span class="spacer"></span>
+        <button id="exportPlan" class="secondary">Export plan CSV</button>
+        <button id="copyPrompt" class="secondary" title="Fallback: paste into Claude in Chrome">Copy as Claude prompt</button>
+        <button id="testOne" class="secondary">Test on first car (pause before Save)</button>
+        <button id="applyAll" class="primary">Apply selected</button>
+        <button id="stop" class="danger" hidden>Stop</button>
+      </div>
+
+      <div id="pauseBar" class="pausebar" hidden>
+        <span id="pauseText"></span>
+        <button id="confirmSave" class="primary">Looks right — Save it</button>
+        <button id="cancelSave" class="secondary">Cancel (don't save)</button>
+      </div>
+
+      <div class="tablewrap">
+        <table id="planTable">
+          <thead>
+            <tr>
+              <th></th><th>Stock</th><th>Vehicle</th><th>Age</th><th>Days Supply</th><th>Like Mine</th>
+              <th>Mkt %</th><th>Markup</th><th>Current</th><th>Suggested</th><th>Change</th>
+              <th>Reason</th><th>Status</th>
+            </tr>
+          </thead>
+          <tbody></tbody>
+        </table>
+      </div>
+    </div>
+  </section>
+
+  <!-- WHOLESALE -->
+  <section id="tab-wholesale" class="panel">
+    <div class="toolbar">
+      <p class="muted">Vehicles priced under cost (negative markup). They still get the normal drop in the plan; this list is for the wholesale manager to run against the online auctions.</p>
+      <span class="spacer"></span>
+      <button id="exportWholesale" class="secondary">Export CSV</button>
+      <button id="printWholesale" class="secondary">Print</button>
+    </div>
+    <div id="wsNote" class="muted"></div>
+    <div class="tablewrap"><table id="wsTable"><thead></thead><tbody></tbody></table></div>
+  </section>
+
+  <!-- HISTORY -->
+  <section id="tab-history" class="panel">
+    <div class="toolbar">
+      <p class="muted">Every price the extension saved. When you drop in a newer export, each change is checked against it: if vAuto's export shows the new price, the change took.</p>
+      <span class="spacer"></span>
+      <button id="exportHistory" class="secondary">Export CSV</button>
+      <button id="clearHistory" class="danger">Clear log</button>
+    </div>
+    <div class="tablewrap"><table id="histTable">
+      <thead><tr><th>Saved</th><th>Stock</th><th>Vehicle</th><th>Old</th><th>New</th><th>Result</th><th>Latest export check</th></tr></thead>
+      <tbody></tbody>
+    </table></div>
+  </section>
+
+  <!-- SETTINGS -->
+  <section id="tab-settings" class="panel">
+    <div class="settings">
+      <label>Unique if Like Mine is under <input type="number" id="setUnique" min="0"></label>
+      <label>Commodity if Like Mine is over <input type="number" id="setCommodity" min="0"></label>
+      <label class="wide">Commodity nameplates (one per line, always treated as commodity)
+        <textarea id="setModels" rows="10"></textarea></label>
+      <label>Pause between cars (seconds) <input type="number" id="setDelay" min="0" step="0.5"></label>
+      <div class="row">
+        <button id="saveSettings" class="primary">Save settings</button>
+        <button id="resetSettings" class="secondary">Reset to defaults</button>
+        <span id="settingsMsg" class="muted"></span>
+      </div>
+      <hr>
+      <p class="muted">Troubleshooting: if the extension can't find a field in vAuto, open that vehicle's Pricing screen and click below. It saves a copy of the page so it can be sent for a fix.</p>
+      <button id="snapshot" class="secondary">Save vAuto page snapshot</button>
+    </div>
+  </section>
+
+  <script src="lib/xlsx.full.min.js"></script>
+  <script src="pricing-engine.js"></script>
+  <script src="export-parser.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>

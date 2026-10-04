@@ -1,0 +1,24 @@
+{
+  "manifest_version": 3,
+  "name": "vAuto Price Adjuster",
+  "version": "2.0.0",
+  "description": "Reads the vAuto Pricing export, recommends 88-ending price drops, and applies + verifies them in vAuto.",
+  "permissions": ["storage", "tabs", "scripting"],
+  "host_permissions": [
+    "*://*.vauto.com/*",
+    "*://*.coxautoinc.com/*"
+  ],
+  "background": { "service_worker": "background.js" },
+  "content_scripts": [
+    {
+      "matches": ["*://*.vauto.com/*", "*://*.coxautoinc.com/*"],
+      "js": ["content-script.js"],
+      "run_at": "document_idle"
+    }
+  ],
+  "action": {
+    "default_title": "vAuto Price Adjuster",
+    "default_icon": { "16": "icons/icon16.png", "32": "icons/icon32.png", "48": "icons/icon48.png" }
+  },
+  "icons": { "16": "icons/icon16.png", "48": "icons/icon48.png", "128": "icons/icon128.png" }
+}
