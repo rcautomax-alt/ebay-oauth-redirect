@@ -267,6 +267,71 @@ export function pickTask(tasks) {
   );
 }
 
+// Notes & History -> entries, newest first (as VinSolutions lists them):
+//   09/28/2026 2:26 PM
+//   Inbound Text Message
+//   Received from: … / Received by: Rick Clemons
+//   I've found other Acadias Thx
+const NOTE_DATE = /^\d{1,2}\/\d{1,2}\/\d{4}\s+\d{1,2}:\d{2}\s*[AP]M$/i;
+const NOTE_META = /^(Received from|Received by|Sent to|Sent by|By|From|To|Subject|Cc)\s*:\s*(.*)$/i;
+const NOTE_FILTERS = /^(All|Inbound|Outbound|All Notes & History|Notes\s*(?:&|and)\s*History.*)$/i;
+
+export function parseNotes(text) {
+  const entries = [];
+  let cur = null;
+  const lines = String(text || '').replace(/\r/g, '').split('\n').map((l) => l.trim());
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i];
+    if (NOTE_DATE.test(line)) {
+      cur = { when: line, label: '', meta: {}, body: [] };
+      entries.push(cur);
+      // The type line ("Inbound Text Message", "General Note"…) comes next,
+      // unless the entry goes straight to "By:".
+      const next = lines[i + 1] || '';
+      if (next && !NOTE_META.test(next) && !NOTE_DATE.test(next)) {
+        cur.label = next;
+        i++;
+      }
+      continue;
+    }
+    if (!cur || (!line && !cur.body.length)) continue;
+    if (!cur.body.length) {
+      const m = line.match(NOTE_META);
+      if (m) {
+        cur.meta[m[1].toLowerCase()] = m[2].trim();
+        continue;
+      }
+    }
+    if (NOTE_FILTERS.test(line) && !cur.body.length) continue;
+    cur.body.push(line);
+  }
+  return entries.map((e) => {
+    const label = e.label;
+    const kind = /text message|\bsms\b/i.test(label)
+      ? 'text'
+      : /e-?mail/i.test(label)
+        ? 'email'
+        : /call/i.test(label)
+          ? 'call'
+          : /general note/i.test(label)
+            ? 'note'
+            : /lead log/i.test(label)
+              ? 'log'
+              : 'note';
+    const direction = /^inbound/i.test(label) ? 'in' : /^outbound/i.test(label) ? 'out' : 'internal';
+    const who =
+      direction === 'in' && kind !== 'call'
+        ? 'customer'
+        : e.meta['sent by'] || e.meta.by || e.meta['received by'] || e.meta.from || '';
+    const body = e.body
+      .filter((l) => !/^reply stop to cancel\.?$/i.test(l))
+      .join('\n')
+      .replace(/\n{3,}/g, '\n\n')
+      .trim();
+    return { when: e.when, label, kind, direction, who, subject: e.meta.subject || '', body };
+  });
+}
+
 export function parseCustomer(frames, map = VIN_MAP) {
   const { right } = splitPanes(frames, map);
   const text = right.map((f) => f.text || '').join('\n\n');
@@ -333,6 +398,7 @@ export function parseCustomer(frames, map = VIN_MAP) {
   const notesCount = countStr === null ? null : Number(countStr);
   const notesStart = text.search(f.notesHeader);
   const notesExcerpt = notesStart >= 0 ? text.slice(notesStart, notesStart + 1500).trim() : '';
+  const noteEntries = notesStart >= 0 ? parseNotes(text.slice(notesStart, notesStart + 60000)) : [];
 
   const tasks = detailTasks(text, map);
   const task = pickTask(tasks);
@@ -360,7 +426,7 @@ export function parseCustomer(frames, map = VIN_MAP) {
       miles,
       markers: { isActive, isSold, needsVin },
     },
-    notes: { count: notesCount, excerpt: notesExcerpt },
+    notes: { count: notesCount, excerpt: notesExcerpt, entries: noteEntries },
     textLength: text.length,
   };
 }

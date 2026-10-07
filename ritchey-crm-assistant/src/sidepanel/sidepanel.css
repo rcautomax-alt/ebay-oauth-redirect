@@ -107,3 +107,12 @@ button.flash-bad { background: var(--block); border-color: var(--block); color: 
 #fs-prompt { user-select: all; }
 .deal-box { border: 1px solid var(--line); border-radius: 6px; padding: 8px; margin: 6px 0 10px; background: var(--panel); }
 .deal-box.hot { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent) inset; }
+.convo li { display: block; padding: 6px 0; border-bottom: 1px dashed var(--line); }
+.convo li.in { border-left: 3px solid var(--info); padding-left: 6px; }
+.convo li.internal { opacity: .7; }
+.convo .meta { font-size: 11px; color: var(--muted); display: flex; justify-content: space-between; align-items: center; gap: 6px; }
+.convo .body { white-space: pre-wrap; margin-top: 2px; }
+.convo button { padding: 1px 8px; font-size: 11px; }
+.reply-box { margin: 6px 0; }
+.reply-box blockquote { margin: 4px 0 6px; padding: 4px 8px; border-left: 3px solid var(--info); background: var(--panel); white-space: pre-wrap; }
+#btn-fs-reply-latest { width: 100%; text-align: left; margin-bottom: 4px; }

@@ -89,3 +89,36 @@ test('best-deal (Autoweb) request: savings laid out, special-for-you framing, no
   // Plain freestyle has no deal framing.
   assert.ok(!buildFreestylePrompt({ instruction: 'hi', record: rec, settings: DEFAULT_SETTINGS }).includes('DEAL CONTEXT'));
 });
+
+test('reply request: their message first, whole conversation in order, internal notes marked, last name and phones stripped', async () => {
+  const { parseNotes } = await import('../src/lib/vin-parser.js');
+  const notes = parseNotes([
+    'Notes & History (5)', 'All', 'Inbound', 'Outbound', 'All Notes & History',
+    '09/28/2026 2:26 PM', 'Inbound Text Message', 'Received from: (904) 555-0101', 'Received by: Rick Clemons', 'Does it have the tow package? Hannah Hill',
+    '09/28/2026 11:18 AM', 'Outbound Text Message', 'Sent to: (904) 555-0101', 'Sent by: Rick Clemons', 'Here are photos https://images.vinsolutions.com/texting/short/abc',
+    '09/28/2026 11:16 AM', 'General Note', 'By: Michael Crynock', 'spoke with Clemons',
+    '09/27/2026 9:00 AM', 'Lead Log', 'By: System', 'Manager Changed From System to Rick Clemons',
+    '09/26/2026 4:00 PM', 'Inbound Email', 'From: hannah@example.com', 'Subject: Acadia question', 'Is it still available?',
+  ].join('\n'));
+  assert.equal(notes.length, 5);
+  assert.deepEqual(notes.map((n) => `${n.direction}/${n.kind}`), ['in/text', 'out/text', 'internal/note', 'internal/log', 'in/email']);
+  assert.equal(notes[4].subject, 'Acadia question');
+  const p = buildFreestylePrompt({
+    instruction: 'Reply to their message and answer what they asked.',
+    record: { ...record, customerName: 'Hannah Hill' },
+    settings: DEFAULT_SETTINGS,
+    conversation: notes,
+    replyTo: notes[0],
+  });
+  assert.ok(p.includes("THEIR MESSAGE I'M REPLYING TO (text, 9/28 2:26 PM):"));
+  assert.ok(p.includes('"Does it have the tow package? Hannah [NAME]"'));
+  const convo = p.slice(p.indexOf('CONVERSATION SO FAR'));
+  // oldest first; log entries dropped; internal notes labelled
+  assert.ok(convo.indexOf('Acadia question') < convo.indexOf('Michael Crynock — internal note') && convo.indexOf('internal note') < convo.indexOf('tow package'));
+  assert.ok(!convo.includes('Manager Changed'));
+  assert.ok(convo.includes('Rick Clemons → customer (text): Here are photos [photo]'));
+  assert.ok(!p.includes('555-0101') && !p.includes('hannah@example.com') && !p.includes('Hill'));
+  assert.ok(p.includes('never mention our internal notes'));
+  // History can be switched off
+  assert.ok(!buildFreestylePrompt({ instruction: 'x', record, settings: DEFAULT_SETTINGS, conversation: false }).includes('CONVERSATION SO FAR'));
+});

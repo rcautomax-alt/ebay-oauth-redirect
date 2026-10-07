@@ -76,9 +76,14 @@
 
     <ul id="flags" class="flags"></ul>
 
-    <details id="notes-box">
-      <summary>Notes &amp; History excerpt</summary>
-      <pre id="notes-excerpt"></pre>
+    <details id="convo-box" open>
+      <summary>💬 Conversation <span id="convo-count" class="hint"></span></summary>
+      <p class="hint">Newest first. ↩ Reply drafts an answer to that message with Claude, using the whole conversation.</p>
+      <ul id="convo-list" class="convo"></ul>
+      <details id="notes-box">
+        <summary class="hint">Raw Notes &amp; History text</summary>
+        <pre id="notes-excerpt"></pre>
+      </details>
     </details>
   </section>
 
@@ -116,6 +121,15 @@
   <details id="freestyle-section">
     <summary>✍️ Freestyle message</summary>
     <p class="hint">Say it your way (trade bump, bad number, anything). Uses the customer read above if there is one, plus the Text/Email and Language choices.</p>
+    <div id="fs-reply-box" class="reply-box">
+      <div id="fs-replying" hidden>
+        <b>↩ Replying to</b> <span id="fs-replying-when" class="hint"></span>
+        <button class="x" id="btn-fs-unreply" title="Not a reply">✕</button>
+        <blockquote id="fs-replying-text"></blockquote>
+      </div>
+      <button id="btn-fs-reply-latest" hidden></button>
+      <label class="check"><input type="checkbox" id="fs-history" checked> Include conversation history</label>
+    </div>
     <div id="fs-deal" class="deal-box">
       <div><b>🏷️ Best-deal message</b> <span class="hint">for Autoweb-style leads that clicked for the best price</span> <span id="fs-source" class="tag" hidden></span></div>
       <div class="grid">

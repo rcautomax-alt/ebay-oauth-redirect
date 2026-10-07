@@ -12,6 +12,52 @@ export const STARTERS = [
   { label: 'Checking in', text: "Just checking in — haven't heard back in a while, no pressure. " },
 ];
 
+// Everything but the first name, so "Hey Hannah" stays readable while the
+// full name never leaves the panel.
+function lastNameParts(fullName) {
+  const parts = String(fullName || '').replace(',', ' ').split(/\s+/).filter(Boolean);
+  if (String(fullName || '').includes(',')) return parts.slice(0, 1); // "Last, First"
+  return parts.slice(1);
+}
+
+function cleanBody(body, fullName) {
+  return scrubPii(body, lastNameParts(fullName))
+    .replace(/https?:\/\/images\.vinsolutions\.com\/\S+/gi, '[photo]')
+    .replace(/https?:\/\/\S+/gi, '[link]')
+    .replace(/\s*\n\s*/g, ' / ')
+    .trim();
+}
+
+function shortWhen(when) {
+  // "09/28/2026 2:26 PM" -> "9/28 2:26 PM"
+  const m = String(when || '').match(/^(\d{1,2})\/(\d{1,2})\/\d{4}\s+(.+)$/);
+  return m ? `${Number(m[1])}/${Number(m[2])} ${m[3]}` : when || '';
+}
+
+export function describeEntry(e) {
+  const what = e.kind === 'text' ? 'text' : e.kind === 'email' ? 'email' : e.kind === 'call' ? `call${/\(([^)]+)\)/.test(e.label) ? ` (${e.label.match(/\(([^)]+)\)/)[1]})` : ''}` : 'note';
+  if (e.direction === 'in' && e.kind !== 'call') return `CUSTOMER (${what})`;
+  if (e.direction === 'out' && e.kind !== 'call') return `${e.who || 'Our team'} → customer (${what})`;
+  return `${e.who || 'Our team'} — internal ${what}`;
+}
+
+// Conversation for the request: oldest first, newest kept when trimming,
+// lead-log noise and auto-generated entries left out.
+export function conversationTranscript(entries, fullName, { maxChars = 7000, maxEntries = 30 } = {}) {
+  const keep = (entries || []).filter((e) => e.kind !== 'log' && e.body && !/^auto generated/i.test(e.body));
+  const out = [];
+  let used = 0;
+  for (const e of keep.slice(0, maxEntries)) {
+    let body = cleanBody(e.subject ? `Subject: ${e.subject} / ${e.body}` : e.body, fullName);
+    if (body.length > 600) body = `${body.slice(0, 600)}…`;
+    const line = `[${shortWhen(e.when)}] ${describeEntry(e)}: ${body}`;
+    if (used + line.length > maxChars) break;
+    out.push(line);
+    used += line.length;
+  }
+  return out.reverse().join('\n');
+}
+
 function noteLines(excerpt, fullName) {
   if (!excerpt) return '';
   const cleaned = scrubPii(excerpt, fullName ? [fullName] : [])
@@ -46,7 +92,7 @@ function vehicleLine(v) {
     .join(' | ');
 }
 
-export function buildFreestylePrompt({ instruction, record, settings, lang = 'en', channels = { sms: true, email: true }, pricing = null, notesExcerpt = '', vehicles = [], deal = null }) {
+export function buildFreestylePrompt({ instruction, record, settings, lang = 'en', channels = { sms: true, email: true }, pricing = null, notesExcerpt = '', vehicles = [], deal = null, conversation = null, replyTo = null }) {
   const r = record || {};
   const s = settings;
   const want = [channels.sms && 'a text message', channels.email && 'an email'].filter(Boolean).join(' and ') || 'a text message and an email';
@@ -78,7 +124,18 @@ export function buildFreestylePrompt({ instruction, record, settings, lang = 'en
       ]
     : [];
 
-  const notes = noteLines(notesExcerpt, r.customerName);
+  const transcript = conversation && conversation.length ? conversationTranscript(conversation, r.customerName) : '';
+  // Raw excerpt only when the conversation couldn't be read entry by entry.
+  const notes = transcript || conversation === false ? '' : noteLines(notesExcerpt, r.customerName);
+  const reply = replyTo
+    ? [
+        '',
+        `THEIR MESSAGE I'M REPLYING TO (${replyTo.kind === 'email' ? 'email' : 'text'}, ${shortWhen(replyTo.when)}):`,
+        `"${cleanBody(replyTo.subject ? `Subject: ${replyTo.subject} / ${replyTo.body}` : replyTo.body, r.customerName)}"`,
+        '- Answer this first and directly, in a natural reply to what they actually said.',
+        "- If they ask something the facts here don't cover, don't guess: leave a clear blank like [____] or say I'll find out and get right back to them.",
+      ]
+    : [];
 
   return [
     `Help me write ${want} to a customer. I'm ${s.firstName}, ${s.title} at ${s.dealership}, a car dealership. My direct line is ${s.phone}.`,
@@ -91,6 +148,15 @@ export function buildFreestylePrompt({ instruction, record, settings, lang = 'en
     ...dealLines,
     ...(vehicles.length
       ? ['', 'VEHICLE(S) TO MENTION (include each link exactly as written, in both the text and the email):', ...vehicles.map((v) => `- ${vehicleLine(v)}`)]
+      : []),
+    ...reply,
+    ...(transcript
+      ? [
+          '',
+          'CONVERSATION SO FAR (oldest first; CUSTOMER = them, names = our team, "internal" = our notes they never saw):',
+          transcript,
+          '- Use it: pick up their details and tone, do not repeat what we already told them, do not ask what they already answered, and never mention our internal notes.',
+        ]
       : []),
     ...(notes ? ['', 'RECENT CRM NOTES (newest first, for context and tone only — do not quote them back):', notes] : []),
     '',

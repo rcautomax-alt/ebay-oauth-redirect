@@ -12,7 +12,7 @@ import { buildDrafts } from '../lib/templates.js';
 import { sharedVoi, upsert, toCsv } from '../lib/queue.js';
 import { withRetry, sleep, SessionError } from '../lib/retry.js';
 import { scrubPii } from '../lib/scrub.js';
-import { STARTERS, buildFreestylePrompt, bestDealInstruction, parseClaudeReply, emailTextToHtml } from '../lib/freestyle.js';
+import { STARTERS, buildFreestylePrompt, bestDealInstruction, describeEntry, parseClaudeReply, emailTextToHtml } from '../lib/freestyle.js';
 
 const $ = (sel) => document.querySelector(sel);
 
@@ -26,6 +26,8 @@ const state = {
   pickedTask: null, // the task you clicked in the list
   record: null, // flat, editable copy of the parsed customer
   notesExcerpt: '',
+  conversation: [], // Notes & History entries, newest first
+  replyTo: null, // the customer message a freestyle reply answers
   view: '',
   userSaysSold: false,
   lang: 'en',
@@ -554,6 +556,8 @@ async function readCustomer({ expectName = null } = {}) {
       Object.assign(state, {
         record: recordFromParsed(parsed),
         notesExcerpt: parsed.notes.excerpt,
+        conversation: parsed.notes.entries || [],
+        replyTo: null,
         view: parsed.view,
         acks: {},
         inventory: null,
@@ -586,7 +590,10 @@ async function readCustomer({ expectName = null } = {}) {
 
       if (result.mode === 'quote' && (state.record.stock || state.record.model)) await runLookup();
       else if (result.mode === 'alternatives' && state.record.model) await runAlternatives();
-      $('#discount').focus();
+      // "Text Message Reply Received" task: their message is the point — set up the reply.
+      const latest = (state.conversation || []).find(isCustomerMessage);
+      if (latest && /reply received/i.test(state.pickedTask?.description || '')) startReply(latest);
+      else $('#discount').focus();
     } catch (err) {
       setStatus(err.message, 'error', () => readCustomer());
     }
@@ -796,13 +803,20 @@ function currentEvaluation() {
     voi: { stock: r.stock, vin: r.vin, status: r.crmStatus, crmPrice: r.crmPrice ? Number(r.crmPrice) : null },
     notes: { count: r.notesCount === '' || r.notesCount === null ? null : Number(r.notesCount) },
   };
-  return evaluate(record, {
+  const result = evaluate(record, {
     settings: state.settings,
     userSaysSold: state.userSaysSold,
     sharedWith: shared,
     inventory: state.inventory,
     expectedCustomer: state.expectedCustomer,
   });
+  // The customer spoke last (no text/email from us since): an opening.
+  const lastMsg = (state.conversation || []).find((e) => (e.kind === 'text' || e.kind === 'email') && e.direction !== 'internal');
+  if (lastMsg?.direction === 'in') {
+    const snip = lastMsg.body.length > 60 ? `${lastMsg.body.slice(0, 60)}…` : lastMsg.body;
+    result.flags.push({ level: 'info', code: 'UNANSWERED', message: `💬 Their last ${lastMsg.kind} hasn't been answered (${lastMsg.when}): “${snip}” — ↩ Reply in Conversation.` });
+  }
+  return result;
 }
 
 function reevaluate() {
@@ -857,9 +871,66 @@ function freestylePrompt() {
     channels: state.channels,
     pricing: $('#fs-pricing').checked ? state.pricing : null,
     notesExcerpt: state.notesExcerpt,
+    conversation: $('#fs-history').checked ? state.conversation : false,
+    replyTo: state.replyTo,
     vehicles: state.fsVehicles.filter((v) => v.selected !== false),
     deal: $('#fs-deal-on').checked ? { goodThrough: $('#fs-deal-through').value.trim() } : null,
   });
+}
+
+// ↩ Reply: answer a customer message with Claude, using the whole thread.
+const isCustomerMessage = (e) => e.direction === 'in' && (e.kind === 'text' || e.kind === 'email');
+
+function startReply(entry) {
+  state.replyTo = entry;
+  // Answer on the channel they used.
+  state.channels = { sms: entry.kind !== 'email', email: entry.kind === 'email' };
+  $('#ch-sms').checked = state.channels.sms;
+  $('#ch-email').checked = state.channels.email;
+  const box = $('#fs-instruction');
+  if (!box.value.trim()) box.value = 'Reply to their message and answer what they asked. ';
+  $('#freestyle-section').open = true;
+  renderReplyBox();
+  box.focus();
+  box.setSelectionRange(box.value.length, box.value.length);
+  $('#freestyle-section').scrollIntoView({ behavior: 'smooth', block: 'start' });
+  setStatus('Add anything you want to tell them (or leave it), then Copy & open Claude.', 'ok');
+}
+
+function renderConversation() {
+  const all = state.conversation || [];
+  const shown = all.filter((e) => e.kind !== 'log').slice(0, 15);
+  $('#convo-count').textContent = all.length ? `(${all.filter(isCustomerMessage).length} from customer · ${all.length} entries)` : '(none read)';
+  $('#convo-list').innerHTML = shown.length
+    ? shown
+        .map((e) => {
+          const i = all.indexOf(e);
+          const body = e.body.length > 280 ? `${e.body.slice(0, 280)}…` : e.body;
+          return `<li class="${e.direction}">
+            <div class="meta"><span>${escapeHtml(describeEntry(e))} · ${escapeHtml(e.when)}</span>
+              ${isCustomerMessage(e) ? `<button data-reply="${i}">↩ Reply</button>` : ''}</div>
+            <div class="body">${escapeHtml(e.subject ? `${e.subject} — ${body}` : body)}</div>
+          </li>`;
+        })
+        .join('')
+    : '<li class="hint">No conversation found on this customer.</li>';
+  renderReplyBox();
+}
+
+function renderReplyBox() {
+  const r = state.replyTo;
+  $('#fs-replying').hidden = !r;
+  if (r) {
+    $('#fs-replying-when').textContent = `${r.kind === 'email' ? 'email' : 'text'} · ${r.when}`;
+    $('#fs-replying-text').textContent = r.subject ? `${r.subject} — ${r.body}` : r.body;
+  }
+  const latest = (state.conversation || []).find(isCustomerMessage);
+  const btn = $('#btn-fs-reply-latest');
+  btn.hidden = !latest || latest === r;
+  if (latest) {
+    const snip = latest.body.length > 70 ? `${latest.body.slice(0, 70)}…` : latest.body;
+    btn.textContent = `↩ Reply to their latest: “${snip}” (${latest.kind}, ${latest.when})`;
+  }
 }
 
 // 🏷️ Best-deal message: VinSolutions price − your discount, framed as
@@ -913,7 +984,7 @@ async function buildBestDeal(e) {
 // The copy is the backup if Claude opens with an empty box.
 async function copyFreestyle(e, { openClaude = false } = {}) {
   const btn = e?.currentTarget;
-  if (!$('#fs-instruction').value.trim()) {
+  if (!$('#fs-instruction').value.trim() && !state.replyTo) {
     flashButton(btn, false, 'Type what to say first');
     setStatus('Type what you want to say first.', 'error');
     $('#fs-instruction').focus();
@@ -1098,6 +1169,7 @@ function renderCustomer() {
   // Autoweb-style leads: open Freestyle so the best-deal box is right there.
   if (/autoweb/i.test(state.record.leadSource || '')) $('#freestyle-section').open = true;
   $('#notes-excerpt').textContent = state.notesExcerpt || '(nothing found)';
+  renderConversation();
   $('#lang').value = state.lang;
 }
 
@@ -1325,6 +1397,18 @@ function wire() {
   $('#btn-save').onclick = saveToQueue;
   $('#btn-site-access').onclick = requestSiteAccess;
   $('#btn-fs-copy').onclick = (e) => copyFreestyle(e);
+  $('#convo-list').onclick = (e) => {
+    const i = e.target.dataset.reply;
+    if (i !== undefined) startReply(state.conversation[Number(i)]);
+  };
+  $('#btn-fs-reply-latest').onclick = () => {
+    const latest = (state.conversation || []).find(isCustomerMessage);
+    if (latest) startReply(latest);
+  };
+  $('#btn-fs-unreply').onclick = () => {
+    state.replyTo = null;
+    renderReplyBox();
+  };
   $('#btn-fs-deal').onclick = buildBestDeal;
   $('#fs-deal-discount').oninput = renderDealBox;
   $('#fs-deal-discount').onblur = (e) => {

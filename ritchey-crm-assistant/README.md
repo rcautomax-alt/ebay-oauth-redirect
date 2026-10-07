@@ -1,4 +1,4 @@
-# Ritchey CRM Assistant (v0.9)
+# Ritchey CRM Assistant (v0.10)
 
 A Chrome extension that sits in a side panel next to VinSolutions. It reads the customer you have open, checks the vehicle of interest against the website (ritcheyautos.com), and drafts the **"\*10 Day: MGR | Send Out Price"** text and email for you to review.
 
@@ -43,6 +43,13 @@ A Chrome extension that sits in a side panel next to VinSolutions. It reads the 
 5. **Generate drafts.** You get the text and email (bold pricing block, no signature since VinSolutions adds it). Both are editable in place.
    - **Copy email (keeps bold)** puts formatted text on the clipboard, so bold survives pasting into the VinSolutions editor.
 6. **Save to today's queue.** **Export CSV** gives you the day's list for your spreadsheet.
+
+**💬 Conversation and ↩ Reply (any customer, task or not):** open any customer in VinSolutions and click **Read Customer**. The **💬 Conversation** list shows their Notes & History newest first: customer texts and emails, your team's replies, and call and general notes.
+- Every customer message has **↩ Reply**. It loads that message into ✍️ Freestyle as "the message I'm answering" and sets the channel to match (text → text, email → email). Add any guidance ("tell her we'll send pics today") or leave it as is, then **Copy & open Claude**.
+- The top of Freestyle offers a one-click **↩ Reply to their latest**.
+- **"Text Message Reply Received"** tasks open with the reply already set up.
+- When the customer spoke last and nobody answered, a flag says so: *💬 Their last text hasn't been answered…*
+- **Every freestyle request** (replies, random messages, best-deal) includes the **conversation so far**, oldest to newest, labeled CUSTOMER vs. who on your team sent it. Internal notes are marked so Claude never mentions them. Claude is told to answer what they actually asked, not repeat what we already told them, not ask what they already answered, and leave a blank rather than guess. Phone numbers, emails and the customer's last name are stripped, and photo links become [photo]. Untick **Include conversation history** to leave it out.
 
 **🏷️ Best-deal message (Autoweb-style leads):** these customers clicked an online "get the best price" link, so they expect a deal. When a lead's VinSolutions **Source** says Autoweb, the panel flags it and opens ✍️ Freestyle with the 🏷️ box highlighted.
 1. Type your **Discount $**. The box shows the math using the VinSolutions price, e.g. $11,488 − $1,000 = $10,488 ($11,819 with fees).
